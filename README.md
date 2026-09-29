@@ -12,6 +12,7 @@
 通用后台管理系统脚手架 —— Vue 3 + TypeScript + Vite + Element Plus + Pinia。
 
 **在线演示：<https://wbjf.github.io/WB-Admin/>** —— 账号 `admin / admin123`，纯前端自带 mock，打开即用。
+
 **文档站：<https://wbjf.github.io/WB-Admin/docs/>** —— 指南、核心机制、14 个通用组件 API，带本地搜索。
 
 目标不是"做一个后台"，而是沉淀一套**改配置就能出系统**的底座：把每次新项目都要重写的东西（请求、路由、权限、表格、CRUD、部署）固化成稳定层，新项目只写业务差异部分。
