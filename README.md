@@ -6,8 +6,11 @@
 [![Element Plus](https://img.shields.io/badge/element--plus-2.8-409EFF?logo=element&logoColor=white)](https://element-plus.org)
 [![TypeScript](https://img.shields.io/badge/typescript-5.6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![在线演示](https://img.shields.io/badge/demo-在线体验-409EFF?logo=githubpages&logoColor=white)](https://wbjf.github.io/WB-Admin/)
 
 通用后台管理系统脚手架 —— Vue 3 + TypeScript + Vite + Element Plus + Pinia。
+
+**在线演示：<https://wbjf.github.io/WB-Admin/>** —— 账号 `admin / admin123`，纯前端自带 mock，打开即用。
 
 目标不是"做一个后台"，而是沉淀一套**改配置就能出系统**的底座：把每次新项目都要重写的东西（请求、路由、权限、表格、CRUD、部署）固化成稳定层，新项目只写业务差异部分。
 
@@ -208,6 +211,28 @@ docker compose up -d          # 本地容器验证，访问 http://localhost:808
 ```
 
 Nginx 关键配置已放在 `docker/nginx.conf`（SPA history 回退 + 静态资源长缓存 + `/prod-api` 反代）。
+
+### 静态托管（GitHub Pages）
+
+线上演示站 <https://wbjf.github.io/WB-Admin/> 由 GitHub Actions 自动部署，
+push 到 `main` 即更新（`.github/workflows/deploy-pages.yml`）。
+
+**别直接把 `npm run build` 的产物丢到静态托管上** —— 会得到一个「登录都过不去」的空壳。
+原因是 mock 中间件挂在 Vite dev server 上（`src/mock/plugin.ts` 的 `configureServer`），
+静态产物里根本不会被加载，接口全部 404。静态托管请用 `npm run build:pages`（配置见 `.env.pages`），
+它做了三件事：
+
+| 措施 | 为什么必须 |
+| --- | --- |
+| `VITE_BASE_URL=/WB-Admin/` | 项目站挂在 `/<repo>/` 子路径下，base 不改则所有资源去域名根目录找 → 整站 404 |
+| `VITE_USE_MOCK=true` | 生产构建开着这个开关时，`src/utils/request.ts` 会把 axios 的 adapter 换成 `src/mock/adapter.ts` —— 把纯函数 `handleRequest` 直接跑在浏览器里，接口行为与开发环境一致，**不需要** mockjs 那种 XHR 劫持 |
+| `cp dist/index.html dist/404.html`（构建后） | GitHub Pages 对不存在的路径只返回 `404.html`，history 路由的深链接（直接访问 `/WB-Admin/system/user`）全靠它兜底 |
+
+`src/mock/adapter.ts` 是**懒加载**的（`import()` 切独立 chunk），所以 `VITE_USE_MOCK=false`
+的正式构建里这个分支是死代码，Rollup 会把整个 chunk 连同 mockjs 一并去掉，正式包不会被拖大。
+
+本地预演 Pages 环境（子路径 + 404 回退 + 真实 Chrome 跑登录/深链接）可以用仓库外的
+`_pages-verify.cjs`（未纳入版本控制，因为它依赖先 `npm run build:pages`）。
 
 ---
 

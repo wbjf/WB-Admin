@@ -1,0 +1,69 @@
+name: Deploy to GitHub Pages
+
+# 部署线上演示站：https://wbjf.github.io/WB-Admin/
+#
+# 为什么需要单独的构建模式（而不是复用 npm run build）：
+#   1. GitHub Pages 项目站挂在 /WB-Admin/ 子路径下，base 必须跟着改，
+#      否则所有资源都会去域名根目录找 → 整站 404；
+#   2. 静态托管没有后端，而本项目的 mock 中间件挂在 Vite dev server 上
+#      （src/mock/plugin.ts 的 configureServer），静态产物里不会被加载。
+#      所以 pages 模式必须开着 VITE_USE_MOCK，由 src/mock/adapter.ts
+#      在浏览器内提供全部接口。
+# 详见 .env.pages。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 只保留最新一次部署，排队中的旧任务取消
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Build (pages mode)
+        run: npm run build:pages
+
+      # GitHub Pages 对「不存在的路径」只会返回 404.html。
+      # 本站用 history 路由，用户直接访问 /WB-Admin/system/user 这类深链接时
+      # 命中这条兜底 —— 内容与 index.html 一致，应用启动后自己按
+      # location.pathname 路由，于是深链接也能正常打开。
+      - name: SPA fallback (404.html)
+        run: cp dist/index.html dist/404.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
