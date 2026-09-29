@@ -7,10 +7,12 @@
 [![TypeScript](https://img.shields.io/badge/typescript-5.6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![在线演示](https://img.shields.io/badge/demo-在线体验-409EFF?logo=githubpages&logoColor=white)](https://wbjf.github.io/WB-Admin/)
+[![文档](https://img.shields.io/badge/docs-文档站-42B883)](https://wbjf.github.io/WB-Admin/docs/)
 
 通用后台管理系统脚手架 —— Vue 3 + TypeScript + Vite + Element Plus + Pinia。
 
 **在线演示：<https://wbjf.github.io/WB-Admin/>** —— 账号 `admin / admin123`，纯前端自带 mock，打开即用。
+**文档站：<https://wbjf.github.io/WB-Admin/docs/>** —— 指南、核心机制、14 个通用组件 API，带本地搜索。
 
 目标不是"做一个后台"，而是沉淀一套**改配置就能出系统**的底座：把每次新项目都要重写的东西（请求、路由、权限、表格、CRUD、部署）固化成稳定层，新项目只写业务差异部分。
 
@@ -38,8 +40,9 @@ npm run dev          # http://localhost:3000
 | `npm run test` | Vitest 单元测试 |
 | `npm run test:e2e` | Playwright 端到端（默认直接用本机 Chrome，无需下载内核；要用自带内核算设 `E2E_CHANNEL=chromium`） |
 | `npm run gen` | 代码生成器 CLI |
-| `npm run docs:dev` | 本地起组件文档站（VitePress） |
+| `npm run docs:dev` | 本地起文档站（VitePress）。地址是 `http://localhost:5173/WB-Admin/docs/`，**base 与线上一致**，路径问题本地就能暴露 |
 | `npm run docs:build` | 构建文档站到 `docs/.vitepress/dist` |
+| `npm run docs:build:pages` | 构建文档站到 `dist/docs`（给 GitHub Pages 用） |
 
 > 完整文档见 `docs/`：起步、动态路由与权限、主题、i18n、多租户、请求层、Mock、代码生成、部署，以及全部 14 个通用组件的 API。
 
@@ -214,25 +217,41 @@ Nginx 关键配置已放在 `docker/nginx.conf`（SPA history 回退 + 静态资
 
 ### 静态托管（GitHub Pages）
 
-线上演示站 <https://wbjf.github.io/WB-Admin/> 由 GitHub Actions 自动部署，
-push 到 `main` 即更新（`.github/workflows/deploy-pages.yml`）。
+演示站与文档站由同一个工作流自动部署（`.github/workflows/deploy-pages.yml`），push 到 `main` 即更新：
+
+| 站点 | 地址 | 产物目录 |
+| --- | --- | --- |
+| 演示站 | <https://wbjf.github.io/WB-Admin/> | `dist/`（Vue 单页应用） |
+| 文档站 | <https://wbjf.github.io/WB-Admin/docs/> | `dist/docs/`（VitePress） |
+
+> 一个仓库只有一个 Pages 站点，所以文档挂成演示站的**子目录**。两者的 base 都带 `/WB-Admin` 前缀。
 
 **别直接把 `npm run build` 的产物丢到静态托管上** —— 会得到一个「登录都过不去」的空壳。
 原因是 mock 中间件挂在 Vite dev server 上（`src/mock/plugin.ts` 的 `configureServer`），
-静态产物里根本不会被加载，接口全部 404。静态托管请用 `npm run build:pages`（配置见 `.env.pages`），
-它做了三件事：
+静态产物里根本不会被加载，接口全部 404。静态托管请用 `npm run build:pages`（配置见 `.env.pages`）：
 
 | 措施 | 为什么必须 |
 | --- | --- |
 | `VITE_BASE_URL=/WB-Admin/` | 项目站挂在 `/<repo>/` 子路径下，base 不改则所有资源去域名根目录找 → 整站 404 |
 | `VITE_USE_MOCK=true` | 生产构建开着这个开关时，`src/utils/request.ts` 会把 axios 的 adapter 换成 `src/mock/adapter.ts` —— 把纯函数 `handleRequest` 直接跑在浏览器里，接口行为与开发环境一致，**不需要** mockjs 那种 XHR 劫持 |
-| `cp dist/index.html dist/404.html`（构建后） | GitHub Pages 对不存在的路径只返回 `404.html`，history 路由的深链接（直接访问 `/WB-Admin/system/user`）全靠它兜底 |
+| `npm run docs:build:pages`（**必须在应用构建之后**） | 文档站建到 `dist/docs`。`vite build` 会先清空 `dist`，顺序调换会把文档冲掉 |
+| `node scripts/make-404.js dist`（构建后） | GitHub Pages 对不存在的路径只返回**站点根目录**的 404.html（子目录里的不会被使用）。脚本把 `index.html` 复制成兜底页，并在 `<head>` 开头插一段分流脚本：文档站路径回文档站首页，其余交给应用按 `location.pathname` 走 history 路由 |
 
 `src/mock/adapter.ts` 是**懒加载**的（`import()` 切独立 chunk），所以 `VITE_USE_MOCK=false`
 的正式构建里这个分支是死代码，Rollup 会把整个 chunk 连同 mockjs 一并去掉，正式包不会被拖大。
 
-本地预演 Pages 环境（子路径 + 404 回退 + 真实 Chrome 跑登录/深链接）可以用仓库外的
-`_pages-verify.cjs`（未纳入版本控制，因为它依赖先 `npm run build:pages`）。
+文档站的 base 写在 `docs/.vitepress/config.ts`（`/WB-Admin/docs/`，可用环境变量 `DOCS_BASE` 覆盖）。
+**不要改用 CLI 的 `--base` 传参**：Windows 的 Git Bash(MSYS) 会把以 `/` 开头的参数当路径改写
+（实测 `/WB-Admin/docs/` → `C:/Users/.../PortableGit/versions/1.2.0/WB-Admin/docs/`），
+**构建照样成功**，但产物里所有链接都是垃圾路径。`scripts/make-404.js` 里有前缀自检，对不上会直接失败。
+
+本地预演 Pages 环境（子路径 + 404 回退 + 真实 Chrome）用仓库外的两个脚本，未纳入版本控制
+（它们依赖先构建）：
+
+| 脚本 | 覆盖范围 |
+| --- | --- |
+| `_pages-verify.cjs` | 演示站：登录、菜单、表格出数据、深链接直达 |
+| `_docs-verify.cjs` | 文档站：首页/侧边栏/本地搜索/深链接，兜底页分流是否正确，以及演示站回归（22 项） |
 
 ---
 

@@ -15,7 +15,16 @@ export default tseslint.config(
       'docs/**',
       'types/auto-imports.d.ts',
       'types/components.d.ts',
-      'code-generator/**'
+      'code-generator/**',
+      // 构建期脚本（Node 侧执行、要往控制台打日志），与 code-generator 同类
+      'scripts/**',
+      // 本地临时排查脚本（_*.cjs 等，已在 .gitignore 里，不进版本控制）。
+      // 不排除的话 `eslint .` 会多出几十个 no-undef —— 它们用的是 CJS 的
+      // require/__dirname/process，而 flat config 里的 node globals 只配置给了
+      // **/*.{ts,js,vue}。本地的假红会盖住真正的回归（CI 上这些文件根本不存在）。
+      '_*.cjs',
+      '_*.mjs',
+      '_*.js'
     ]
   },
   js.configs.recommended,

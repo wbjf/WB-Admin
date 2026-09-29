@@ -1,15 +1,22 @@
 name: Deploy to GitHub Pages
 
-# 部署线上演示站：https://wbjf.github.io/WB-Admin/
+# 部署线上演示站与文档站：
+#   演示站  https://wbjf.github.io/WB-Admin/
+#   文档站  https://wbjf.github.io/WB-Admin/docs/
 #
-# 为什么需要单独的构建模式（而不是复用 npm run build）：
+# 为什么演示站要单独一个构建模式（而不是复用 npm run build）：
 #   1. GitHub Pages 项目站挂在 /WB-Admin/ 子路径下，base 必须跟着改，
 #      否则所有资源都会去域名根目录找 → 整站 404；
 #   2. 静态托管没有后端，而本项目的 mock 中间件挂在 Vite dev server 上
 #      （src/mock/plugin.ts 的 configureServer），静态产物里不会被加载。
 #      所以 pages 模式必须开着 VITE_USE_MOCK，由 src/mock/adapter.ts
 #      在浏览器内提供全部接口。
-# 详见 .env.pages。
+#   详见 .env.pages。
+#
+# 文档站为什么挂在子目录：一个仓库只有一个 Pages 站点，根路径已被演示站占用。
+# 它的 base 写在 docs/.vitepress/config.ts —— 别改用 CLI --base，
+# 该文件里有踩坑说明（Windows Git Bash 会改写以 / 开头的参数）。
+# 两个产物合并进同一个 artifact：dist/（应用）+ dist/docs/（文档）。
 
 on:
   push:
@@ -40,15 +47,18 @@ jobs:
       - name: Install
         run: npm install --no-audit --no-fund
 
+      # 顺序不能调换：vite build 会先清空 dist，文档必须建在它之后
       - name: Build (pages mode)
         run: npm run build:pages
 
-      # GitHub Pages 对「不存在的路径」只会返回 404.html。
-      # 本站用 history 路由，用户直接访问 /WB-Admin/system/user 这类深链接时
-      # 命中这条兜底 —— 内容与 index.html 一致，应用启动后自己按
-      # location.pathname 路由，于是深链接也能正常打开。
+      - name: Build docs
+        run: npm run docs:build:pages
+
+      # 生成兜底页：文档路径回文档站 + 应用深链接交给 history 路由
+      # 路径不要从命令行传（Windows Git Bash 会改写以 / 开头的参数），
+      # 脚本内部有前缀自检，对不上会直接失败
       - name: SPA fallback (404.html)
-        run: cp dist/index.html dist/404.html
+        run: node scripts/make-404.js dist
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
