@@ -1,5 +1,12 @@
 # WB-Admin
 
+[![CI](https://github.com/wbjf/WB-Admin/actions/workflows/ci.yml/badge.svg)](https://github.com/wbjf/WB-Admin/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/badge/node-%3E%3D18.18-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![Vue](https://img.shields.io/badge/vue-3.5-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org)
+[![Element Plus](https://img.shields.io/badge/element--plus-2.8-409EFF?logo=element&logoColor=white)](https://element-plus.org)
+[![TypeScript](https://img.shields.io/badge/typescript-5.6-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
 通用后台管理系统脚手架 —— Vue 3 + TypeScript + Vite + Element Plus + Pinia。
 
 目标不是"做一个后台"，而是沉淀一套**改配置就能出系统**的底座：把每次新项目都要重写的东西（请求、路由、权限、表格、CRUD、部署）固化成稳定层，新项目只写业务差异部分。
@@ -349,3 +356,11 @@ Nginx 关键配置已放在 `docker/nginx.conf`（SPA history 回退 + 静态资
     判断方法：改动前后**都量一次容器高度**，别只量你要修的那个属性 —— 本次就是靠
     「inner 高度 32 → 30.61」这行对照数据才发现副作用，否则会以"已居中"收工、留下一个矮 2px 的按钮。
     同类要提防的还有 `padding` 与 `border-box` 的组合（见第 26 条，量的是图标被压扁）。
+
+---
+
+## License
+
+[MIT](./LICENSE) © 2026 wbjf
+
+可自由用于商业项目，保留版权声明即可。

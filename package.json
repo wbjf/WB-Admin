@@ -2,7 +2,30 @@
   "name": "wb-admin",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "WB-Admin · 通用后台管理系统脚手架（Vue3 + TypeScript + Element Plus）",
+  "keywords": [
+    "vue3",
+    "typescript",
+    "vite",
+    "element-plus",
+    "admin",
+    "admin-template",
+    "backend-management",
+    "scaffold",
+    "pinia",
+    "rbac",
+    "multi-tenant"
+  ],
+  "author": "wbjf",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wbjf/WB-Admin.git"
+  },
+  "homepage": "https://github.com/wbjf/WB-Admin#readme",
+  "bugs": {
+    "url": "https://github.com/wbjf/WB-Admin/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=18.18.0"
