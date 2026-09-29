@@ -70,7 +70,8 @@ export const watermark: Directive = {
     const value = binding.value
     const options: WatermarkOptions =
       typeof value === 'string' ? { text: value } : { text: 'WB-Admin', ...(value ?? {}) }
-    options.text ? apply(el, options) : remove(el)
+    if (options.text) apply(el, options)
+    else remove(el)
   },
   unmounted(el: HTMLElement) {
     remove(el)

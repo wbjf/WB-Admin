@@ -161,6 +161,17 @@ function onCurrentChange(page: number): void {
 }
 
 function onColumnChange(next: TableColumn[]): void {
+  /*
+   * 就地改写 props.columns 的内容，让父级传入的数组始终是列状态的唯一数据源
+   * （列设置面板里的隐藏/固定是直接改列对象的属性，顺序则靠这一次原地替换同步）。
+   *
+   * 这里显式关掉 vue/no-mutating-props：columns 是**配置型 prop**，
+   * 「父级持有数组、子组件就地更新其顺序」是这套组件的既定契约，
+   * 不是误改传入值。改成内部维护一份列状态副本需要同时处理
+   * 「父级换配置要同步」与「父级用内联数组字面量时每次渲染都是新数组」两种情况，
+   * 会引入列顺序被重置的回归风险，不值得为此扩大改动面。
+   */
+  // eslint-disable-next-line vue/no-mutating-props -- 见上：columns 为配置型 prop，就地同步顺序是既定契约
   props.columns.splice(0, props.columns.length, ...next)
 }
 

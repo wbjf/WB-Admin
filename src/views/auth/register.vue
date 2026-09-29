@@ -36,7 +36,8 @@ const rules = computed<FormRules>(() => ({
   confirmPassword: [
     {
       validator: (_r, value, cb) => {
-        value === form.value.password ? cb() : cb(new Error(t('login.passwordMismatch')))
+        if (value === form.value.password) cb()
+        else cb(new Error(t('login.passwordMismatch')))
       },
       trigger: 'blur'
     }
