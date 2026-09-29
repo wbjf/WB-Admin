@@ -28,7 +28,12 @@ router.beforeEach(async (to: RouteLocationNormalized, _from, next) => {
       return
     }
 
-    if (!userStore.userId) {
+    // ⚠️ 不能只判 `!userStore.userId`：userId / permissions 是持久化的，
+    // 刷新页面时它们「有值但可能是上一次会话的旧快照」，于是这里被整体跳过、
+    // 全程不请求 getInfo —— 后端新增的权限点在本机永远拿不到，直接 403
+    // （实测：点「示例演示 → 弹窗能力」报「抱歉，你没有访问权限」，只要不退出重登就一直在）。
+    // infoLoaded 不参与持久化，所以每次页面加载都会走到这里重新拉一次。
+    if (!userStore.userId || !userStore.infoLoaded) {
       try {
         await userStore.loadUserInfo()
         const routes = await permStore.loadRoutes()

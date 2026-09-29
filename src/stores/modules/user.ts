@@ -28,7 +28,15 @@ export const useUserStore = defineStore('wb-user', {
     permissions: [] as string[],
     currentRole: '' as string,
     tenantId: getTenantId(),
-    isSuperAdmin: false
+    isSuperAdmin: false,
+    /**
+     * 本次「页面会话」是否已经向后端拉过用户信息。
+     * 权限是后端下发的派生数据，持久化里那份只是上次会话的快照：
+     * 后端新增权限点后本机永远拿不到（要点退出重登才发现），后端收回权限本机也照样放行。
+     * 所以每次进页面都重新拉一次，用这个标记避免同一个 SPA 会话内重复请求。
+     * **故意不进 persist.pick** —— 它要表达的就是「这一次页面加载拉过了没」。
+     */
+    infoLoaded: false
   }),
   getters: {
     roleKeys(state): string[] {
@@ -71,6 +79,7 @@ export const useUserStore = defineStore('wb-user', {
     async loadUserInfo() {
       const info: UserInfo = await getUserProfile()
       this.setProfile(info)
+      this.infoLoaded = true
       return info
     },
 
@@ -123,10 +132,13 @@ export const useUserStore = defineStore('wb-user', {
       this.permissions = []
       this.currentRole = ''
       this.isSuperAdmin = false
+      this.infoLoaded = false
     }
   },
   persist: {
     key: 'wb-admin-user',
+    // permissions / roles / isSuperAdmin 只是「上次会话的快照」，用来让顶栏首帧就有内容，
+    // 真正生效前会被 loadUserInfo() 覆盖。infoLoaded 不在列表里，见 state 里的说明。
     pick: ['userId', 'userName', 'nickName', 'avatar', 'roles', 'permissions', 'tenantId', 'currentRole', 'isSuperAdmin']
   }
 })
