@@ -265,7 +265,8 @@ export function buildMenus(): any[] {
     {
       id: '4', parentId: '0', name: 'Demo', title: '示例演示', icon: 'Present', type: 'M',
       path: '/demo', component: 'Layout', visible: '0', sort: 4, children: [
-        { id: '41', parentId: '4', name: 'CrudDemo', title: 'CRUD 示例', icon: 'EditPen', type: 'C', path: 'crud', component: 'demo/crud/index', perms: 'demo:crud:list', visible: '0' }
+        { id: '41', parentId: '4', name: 'CrudDemo', title: 'CRUD 示例', icon: 'EditPen', type: 'C', path: 'crud', component: 'demo/crud/index', perms: 'demo:crud:list', visible: '0' },
+        { id: '42', parentId: '4', name: 'DialogDemo', title: '弹窗能力', icon: 'FullScreen', type: 'C', path: 'dialog', component: 'demo/dialog/index', perms: 'demo:dialog:list', visible: '0' }
       ]
     }
   ]

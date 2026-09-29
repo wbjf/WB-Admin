@@ -422,3 +422,221 @@ html.html-gray {
   margin-left: 0 !important;
   margin-right: 0 !important;
 }
+
+/* ============================================================
+ * ProDialog：标题栏操作区 / 全屏 / 最大化 / 最小化 / 多弹窗层叠
+ * ============================================================
+ *
+ * 两条贯穿本段的注意事项：
+ *
+ * 1. **选择器要写到 0,3,0**（`.el-dialog.pro-dialog.is-xxx`）。
+ *    Element Plus 的样式在文档里有**两份**：main.ts 里 import 的 dist/index.css，
+ *    以及按需导入时逐组件注入的那份（见 vite.config.ts 的 elementPlusStyleEntries）。
+ *    后者排在 styles/index.scss 之后，同权重时后写的赢 —— 只写 0,2,0 会「改了没生效」，
+ *    而且静默（构建照常成功）。多加 `.pro-dialog` 这一级即可，不必上 !important。
+ *
+ * 2. **拖动走的是内联 transform**。EP 的 useDraggable 在拖动时直接写
+ *    `el.style.transform = translate(x, y)`，内联样式优先级高于任何选择器，
+ *    所以最大化 / 最小化这两处必须 `transform: none !important` 才能把它压掉，
+ *    否则从拖动过的位置点最大化，整块弹窗会偏出去。
+ */
+
+/* ---------- 标题栏布局 ---------- */
+
+/**
+ * 只在「有操作按钮」时启用（ProDialog 通过 header-class 打上这个类）。
+ * 没有按钮的弹窗沿用 Element Plus 默认表头，渲染结果与改造前逐字一致。
+ */
+.el-dialog__header.pro-dialog__header-wrap {
+  display: flex;
+  align-items: center;
+}
+
+/**
+ * 给绝对定位的关闭按钮让位。
+ *
+ * `.el-dialog__headerbtn` 是 `position: absolute; top: 0; right: 0; width: 48px; height: 48px`，
+ * 不占布局流；EP 自己只给带关闭按钮的表头留了 32px 右内边距（16 + 16），
+ * 我们的按钮组按右对齐会压到它下面。48px 就是关闭按钮的实际宽度。
+ */
+.el-dialog__header.pro-dialog__header-wrap.show-close {
+  padding-right: 48px;
+}
+
+.pro-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pro-dialog__acts {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+/**
+ * 标题栏上的图标按钮。
+ *
+ * 用原生 button 而不是 el-button：EP 的按钮有 32px 最小高度与内边距，
+ * 塞进 24px 高的标题行会把表头整体撑高，进而改变**所有**弹窗的表头高度。
+ */
+.pro-dialog__act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+
+  /**
+   * 开着拖动时 EP 会给整个 header 设 `cursor: move`，这里要盖回来，
+   * 否则鼠标移到按钮上显示的还是「可拖动」的光标。
+   */
+  &:hover {
+    background: var(--el-fill-color);
+    color: var(--el-color-primary);
+  }
+}
+
+.pro-dialog__svg {
+  display: block;
+  width: 1em;
+  height: 1em;
+}
+
+/* ---------- 全屏 / 最大化：让正文撑满，头部与底部钉住 ---------- */
+
+/**
+ * 全屏（EP 原生）：EP 给的是 `height: 100%; overflow: auto; border-radius: 0`，
+ * 也就是**整块弹窗自己滚**，头部会随着内容滚走、底部按钮也要滚到底才看得到。
+ * 改成纵向 flex + 正文内部滚动。
+ *
+ * 最大化：撑满视口但保留四周留白与圆角 —— 这既是它和「全屏」的观感区别，
+ * 也是两者能同时作为独立开关存在的原因。
+ *
+ * 这里的 flex 是安全的：两种状态下弹窗高度都是**确定的**
+ * （全屏 100%、最大化由上下定位撑出），不存在「父高 auto 时 flex: 1 1 0 把内容压成 0」的问题。
+ */
+.el-dialog.pro-dialog.is-fullscreen,
+.el-dialog.pro-dialog.is-maximized {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.el-dialog.pro-dialog.is-maximized {
+  position: fixed;
+  top: var(--pro-dialog-inset, 16px);
+  right: var(--pro-dialog-inset, 16px);
+  bottom: var(--pro-dialog-inset, 16px);
+  left: var(--pro-dialog-inset, 16px);
+  width: auto;
+  height: auto;
+  max-width: none;
+  margin: 0;
+  /* 压掉拖动留下的内联 transform，否则整块会偏移 */
+  transform: none !important;
+  border-radius: 8px;
+}
+
+.el-dialog.pro-dialog.is-fullscreen .el-dialog__header,
+.el-dialog.pro-dialog.is-maximized .el-dialog__header,
+.el-dialog.pro-dialog.is-fullscreen .el-dialog__footer,
+.el-dialog.pro-dialog.is-maximized .el-dialog__footer {
+  flex: none;
+}
+
+.el-dialog.pro-dialog.is-fullscreen .el-dialog__body,
+.el-dialog.pro-dialog.is-maximized .el-dialog__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/**
+ * 正文里的滚动容器吃掉剩余高度。
+ * ProDialog 在全屏 / 最大化时把 el-scrollbar 的 max-height 传成 `none`，
+ * 高度完全交给这里 —— 比硬编码「视口减头部减底部」那串数字稳，
+ * 换字号、换主题、多语言导致表头高度变化都不会失准。
+ */
+.el-dialog.pro-dialog.is-fullscreen .el-dialog__body > .el-scrollbar,
+.el-dialog.pro-dialog.is-maximized .el-dialog__body > .el-scrollbar {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* ---------- 最小化：收成标题栏钉在右下角 ---------- */
+
+/**
+ * 收成一条标题栏、钉在右下角，从下往上摞（序号由组件通过 --pro-dialog-min-index 传入），
+ * 天然就是一条「任务栏」。
+ *
+ * 组件在最小化时会把遮罩一并撤掉，所以它不会挡住下面的页面与其它弹窗。
+ * 点标题栏任意位置即可还原（还提供「还原」按钮）。
+ */
+.el-dialog.pro-dialog.is-minimized {
+  position: fixed;
+  top: auto;
+  left: auto;
+  right: 24px;
+  bottom: calc(var(--pro-dialog-min-index, 0) * 48px);
+  width: var(--pro-dialog-min-width, 280px);
+  height: auto;
+  max-width: calc(100vw - 48px);
+  margin: 0;
+  padding: 8px 12px;
+  /* 同上：压掉拖动的内联 transform */
+  transform: none !important;
+  border-radius: 8px 8px 0 0;
+  box-shadow: var(--el-box-shadow-light);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.el-dialog.pro-dialog.is-minimized .el-dialog__header {
+  padding-bottom: 0;
+}
+
+/**
+ * 关闭按钮是 48×48 的绝对定位方块，比最小化后的横条还高，图标会偏下；
+ * 压到横条高度即可让图标居中对齐。
+ */
+.el-dialog.pro-dialog.is-minimized .el-dialog__headerbtn {
+  height: 40px;
+}
+
+.el-dialog.pro-dialog.is-minimized .el-dialog__body,
+.el-dialog.pro-dialog.is-minimized .el-dialog__footer {
+  display: none;
+}
+
+/* ---------- 多弹窗层叠错位 ---------- */
+
+/**
+ * 第 2 个及以后打开的弹窗向右下偏移，避免**完全重叠** ——
+ * 两个一样大的弹窗叠在一起，用户看到的还是一层，会误以为第二个没打开。
+ *
+ * 用 `position: relative` + top/left 而不是 transform：transform 被 EP 的拖动占着，
+ * 两者会互相覆盖。`.el-dialog` 本身就是 relative，所以这里不用额外声明定位方式。
+ *
+ * 偏移量由组件算好（层号 × cascadeStep，并受 maxCascade 上限约束）后写进 CSS 变量，
+ * 铺满状态（全屏 / 最大化 / 最小化）下组件不会加这个类。
+ */
+.el-dialog.pro-dialog.is-cascaded {
+  top: var(--pro-dialog-offset-y, 0px);
+  left: var(--pro-dialog-offset-x, 0px);
+}

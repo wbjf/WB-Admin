@@ -70,7 +70,8 @@ const ALL_PERMS = [
   'monitor:server:list', 'monitor:cache:list', 'monitor:job:list', 'monitor:job:add', 'monitor:job:edit', 'monitor:job:remove',
   'tool:gen:list', 'tool:gen:code',
   'system:file:list', 'system:file:add', 'system:file:remove',
-  'demo:crud:list', 'demo:crud:add', 'demo:crud:edit', 'demo:crud:remove', 'demo:crud:export'
+  'demo:crud:list', 'demo:crud:add', 'demo:crud:edit', 'demo:crud:remove', 'demo:crud:export',
+  'demo:dialog:list'
 ]
 
 const routes: Record<string, Handler> = {

@@ -78,9 +78,10 @@ describe('菜单 → 路由转换', () => {
     expect(paths).toContain('/system/user')
     expect(paths).toContain('/monitor/server')
     expect(paths).toContain('/demo/crud')
+    expect(paths).toContain('/demo/dialog')
     // 解析不到组件的菜单会被静默丢弃，数量对不上说明白名单漏了文件
-    // 菜单叶子页共 18 个：系统管理 9 + 系统监控 5 + 系统工具 3 + 示例演示 1
-    expect(paths.length).toBe(18)
+    // 菜单叶子页共 19 个：系统管理 9 + 系统监控 5 + 系统工具 3 + 示例演示 2
+    expect(paths.length).toBe(19)
   })
 })
 

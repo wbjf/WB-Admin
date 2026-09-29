@@ -101,7 +101,7 @@ npm run dev          # http://localhost:3000
 | `ProTable` | 配置列 + 插槽 + 分页 + 多选 + 排序 + 列设置（显隐/排序/固定）+ 导出 + 打印 + 树表 |
 | `ProForm` | Schema 驱动表单，19 种控件，栅格布局，字典联动 |
 | `SearchForm` | 查询表单，自动折叠展开 |
-| `ProDialog` | 统一弹窗（确认态 / 滚动 / destroy-on-close） |
+| `ProDialog` | 统一弹窗（确认态 / 滚动 / destroy-on-close），可选 **全屏 / 标题栏拖动 / 最大化 / 最小化 / 多弹窗共存**，三项能力都收敛到 `src/config/dialog.ts` 全局默认 + 单个弹窗 prop 两层开关 |
 | `DictSelect` / `DictTag` | 字典组件，统一缓存 |
 | `IconSelect` | 图标选择器（全量 EP Icons） |
 | `EChart` | 图表封装，跟主题明暗联动 + 容器 resize |
@@ -401,6 +401,27 @@ Nginx 关键配置已放在 `docker/nginx.conf`（SPA history 回退 + 静态资
     判断方法：改动前后**都量一次容器高度**，别只量你要修的那个属性 —— 本次就是靠
     「inner 高度 32 → 30.61」这行对照数据才发现副作用，否则会以"已居中"收工、留下一个矮 2px 的按钮。
     同类要提防的还有 `padding` 与 `border-box` 的组合（见第 26 条，量的是图标被压扁）。
+32. **「不传就用全局默认」的布尔 prop 必须显式写 `default: undefined`，否则永远拿不到默认值。**
+    Vue 对 `type: Boolean` 且**没有 default** 的 prop 有一条内建的「布尔转换」：**没传就等于 `false`**，
+    和「传了 false」在运行时完全分不出来。于是 `props.draggable ?? cfg.draggable` 里的 `??`
+    永远不会走到右边 —— 全局默认形同虚设，而且**没有任何报错**。
+    本轮就是这么中招的：`ProDialog` 新增的能力开关全走 `prop ?? 全局默认`，
+    结果**所有既有弹窗一个按钮都没有**（`_dbg-props.cjs` 读出 props 里全是 `false`，
+    连只写了 `v-model` / `title` 的弹窗也一样）。
+    修法是 `withDefaults` 里给这些 prop 逐个写 `default: undefined`（编译产物变成 `default: void 0`），
+    `hasOwn(prop, 'default')` 成立后 Vue 就跳过布尔转换、保住 `undefined` 语义。
+    **判断标志**：凡是「prop 没传应当回退到某个全局配置」的地方，都要检查这一点；
+    反例是 `:modal="flag ? true : undefined"` 这类写法 —— 此时 `props.modal` 是 `false` 而非
+    `undefined`，`props.modal !== undefined` 会恒真、把回退逻辑整个短路。
+33. **`ProDialog` 的拖动能力有三个非显然的约束。**
+    - **表头里的自定义按钮必须 `@mousedown.stop`**：EP 的 `useDraggable` 把 `mousedown` 挂在
+      整个 `<header>` 上，不拦的话点「最小化」会顺带把弹窗拖走。
+    - **默认拖不出视口**，这是 EP 的 `overflow=false` 行为（位移被夹在 `clientHeight - top - height`
+      之内）。弹窗高 745 / 视口 900 时纵向只剩 20px 可走 —— 写用例时**不能把目标位移当预期值**，
+      要按实时几何算上界，否则会误报「拖动坏了」（本轮就误报过一次）。
+      真需要自由拖动就打开 `overflow`（`ProDialog` 已透传）。
+    - **关掉的弹窗遮罩仍留在 DOM 里**（`display: none`）。统计「有几层遮罩」必须按可见性过滤，
+      否则会得出「只开一个弹窗也算多弹窗」的假结论。
 
 ---
 

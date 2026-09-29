@@ -401,6 +401,13 @@ export default {
     zoomOut: '缩小',
     reset: '重置裁剪'
   },
+  dialog: {
+    minimize: '最小化',
+    maximize: '最大化',
+    restore: '还原',
+    fullscreen: '全屏',
+    exitFullscreen: '退出全屏'
+  },
   theme: {
     mode: '主题模式',
     light: '浅色',

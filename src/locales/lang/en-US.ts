@@ -401,6 +401,13 @@ export default {
     zoomOut: 'Zoom out',
     reset: 'Reset crop'
   },
+  dialog: {
+    minimize: 'Minimize',
+    maximize: 'Maximize',
+    restore: 'Restore',
+    fullscreen: 'Fullscreen',
+    exitFullscreen: 'Exit fullscreen'
+  },
   theme: {
     mode: 'Theme mode',
     light: 'Light',

@@ -34,8 +34,10 @@ playwright-report
 # 文档站构建产物与缓存
 docs/.vitepress/dist
 docs/.vitepress/cache
-# Vite 加载 TS 配置时落下的临时文件（VitePress 有时不会清理掉）
-docs/.vitepress/*.timestamp-*.mjs
+# Vite / VitePress 加载 TS 配置时落下的临时文件（未必会被清理掉）
+# 注意要覆盖仓库根目录那份：`vite.config.ts.timestamp-*.mjs` 在主目录下，
+# 只写 docs/.vitepress 那一条漏不掉它，跑一次 dev 就会冒出来。
+*.timestamp-*.mjs
 
 # 临时排查产物（脚本输出、截图、日志）
 _*.txt
