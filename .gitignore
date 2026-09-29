@@ -1,0 +1,45 @@
+node_modules
+dist
+dist-zip
+.local
+.output.js
+stats.html
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+coverage
+test-results
+playwright-report
+.env.local
+.env.*.local
+
+# 注：types/auto-imports.d.ts 与 types/components.d.ts 由 unplugin 生成，
+# 但**必须纳入版本控制** —— tsconfig 的 include 依赖它们，而 `npm run build`
+# 的第一步就是 `vue-tsc --noEmit`（早于 vite 触发插件生成）。
+# 实测：删掉这两个文件后类型检查会报 11 个 TS7006 错误，新克隆直接构建失败。
+
+# 文档站构建产物与缓存
+docs/.vitepress/dist
+docs/.vitepress/cache
+
+# 临时排查产物（脚本输出、截图、日志）
+_*.txt
+_*.log
+_*.cjs
+_*.mjs
+_shots*/
+tsc-out*.txt
+tsc-exit.txt

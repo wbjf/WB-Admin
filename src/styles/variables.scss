@@ -1,0 +1,33 @@
+// 仅变量与 mixin —— 会被注入到所有 scss 文件，禁止书写 CSS 规则
+$namespace: 'wb';
+
+$sidebar-width: 220px;
+$sidebar-width-collapsed: 64px;
+$navbar-height: 56px;
+$tags-height: 38px;
+$footer-height: 32px;
+
+$transition-base: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+
+$bg-page: #f4f5f7;
+$bg-card: #ffffff;
+$border-color: #e4e7ed;
+
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin ellipsis($lines: 1) {
+  @if $lines == 1 {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  } @else {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: $lines;
+    overflow: hidden;
+  }
+}

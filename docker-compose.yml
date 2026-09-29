@@ -1,0 +1,16 @@
+services:
+  wb-admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wb-admin:latest
+    container_name: wb-admin
+    ports:
+      - '8080:80'
+    restart: unless-stopped
+    networks:
+      - wb-net
+
+networks:
+  wb-net:
+    driver: bridge

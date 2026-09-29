@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="WB-Admin · 通用后台管理系统脚手架" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>WB-Admin</title>
+    <script>
+      ;(function () {
+        try {
+          var raw = localStorage.getItem('wb-admin-theme')
+          var t = raw ? JSON.parse(raw) : {}
+          var root = document.documentElement
+          var dark =
+            t.mode === 'dark' ||
+            (t.mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) root.classList.add('dark')
+          if (t.weak) root.classList.add('html-weak')
+          if (t.gray) root.classList.add('html-gray')
+          if (t.color) root.style.setProperty('--el-color-primary', t.color)
+          root.style.setProperty('--wb-layout-mode', t.layout || 'left')
+        } catch (e) {
+          /* ignore */
+        }
+      })()
+    </script>
+    <style>
+      html,
+      body,
+      #app {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+          'Microsoft YaHei', sans-serif;
+      }
+      #app-loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 14px;
+        background: #ffffff;
+        color: #409eff;
+        font-size: 14px;
+        z-index: 9999;
+      }
+      .wb-loader {
+        width: 34px;
+        height: 34px;
+        border: 3px solid #dcdfe6;
+        border-top-color: #409eff;
+        border-radius: 50%;
+        animation: wb-spin 0.8s linear infinite;
+      }
+      @keyframes wb-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="app-loading">
+        <div class="wb-loader"></div>
+        <div>Loading…</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,424 @@
+// 全局样式（不含可被 additionalData 注入的变量）
+:root {
+  --wb-sidebar-width: 220px;
+  --wb-sidebar-collapsed-width: 64px;
+  --wb-navbar-height: 56px;
+  --wb-tags-height: 38px;
+  --wb-footer-height: 32px;
+  /* 内容区四周留白（图中标注处）——全站统一 12px */
+  --wb-content-padding: 12px;
+  /* 模块之间的间距，与内容区留白保持一致 */
+  --wb-gap: var(--wb-content-padding);
+  --wb-bg-page: #f4f5f7;
+  --wb-bg-card: #ffffff;
+  --wb-border: #e4e7ed;
+  /* 菜单激活项底色：先给纯灰兜底，支持 color-mix 时再叠加主色 */
+  --wb-menu-active-bg: var(--el-fill-color-light);
+}
+
+/* 激活态底色跟随主色（半透明叠加，浅色/深色主题都成立） */
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  :root {
+    --wb-menu-active-bg: color-mix(in srgb, var(--el-color-primary) 13%, transparent);
+  }
+}
+
+html.dark {
+  --wb-bg-page: #141414;
+  --wb-bg-card: #1d1e1f;
+  --wb-border: #303133;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--wb-bg-page);
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(144, 147, 153, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(144, 147, 153, 0.5);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 色弱 / 灰阶模式 */
+html.html-weak {
+  filter: invert(80%);
+}
+
+html.html-weak img,
+html.html-weak video {
+  filter: invert(100%);
+}
+
+html.html-gray {
+  filter: grayscale(100%);
+}
+
+/* 通用卡片 */
+/**
+ * 页面容器。
+ *
+ * 留白只由内容区（.wb-app-main）提供一次——原来这里也写了 padding，
+ * 两级叠加成 32px，才会出现图中"边距偏大"的观感。
+ *
+ * 纵向 flex + height:100% 是"模块撑满"的前提：撑满型模块靠 flex 吃掉剩余高度。
+ * 内容天然超高的页面（工作台、服务监控）在容器内部滚动，窗口永远不会出现滚动条。
+ */
+.wb-page {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--wb-gap);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/**
+ * 页面直接子级默认不参与收缩（flex: none）。
+ * 否则内容超高时 flex 会先把模块压扁，而不是让容器滚动。
+ */
+.wb-page > * {
+  flex: none;
+}
+
+/* 与容器 gap 语义重复的 margin 归零，间距只由 gap 一处决定 */
+.wb-page > .wb-mt12,
+.wb-page > .wb-search-form {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.wb-card {
+  background: var(--wb-bg-card);
+  border-radius: 8px;
+  padding: var(--wb-gap);
+  border: 1px solid var(--wb-border);
+}
+
+/**
+ * 撑满型模块（内部可滚动）。
+ *
+ * 卡片变成纵向 flex 容器：工具栏与分页固定，中间内容区用 flex:1 撑开并在内部滚动。
+ * 含表格的卡片自动识别（表格是最常见的"需要内部滚动"的内容），
+ * 其余场景用显式类 .wb-card--fill（左树卡片、左右分栏页等）。
+ */
+.wb-card--fill,
+.wb-card:has(> .wb-pro-table) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.wb-card--fill {
+  height: 100%;
+}
+
+/**
+ * 表格在撑满卡片里纵向铺开。
+ * Element Plus 给 .el-table 写了 height: fit-content，作为 flex 子项会挡住拉伸，
+ * 所以这里用 flex-basis: 0 让高度完全由 flex 计算；表体（.el-table__body-wrapper）
+ * 拿到确定高度后由 EP 自带的 overflow 负责滚动。
+ */
+.wb-card--fill > .wb-pro-table,
+.wb-card:has(> .wb-pro-table) > .wb-pro-table {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.wb-card--fill > .wb-pro-table > .el-table,
+.wb-card:has(> .wb-pro-table) > .wb-pro-table > .el-table {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* 列表页：页面直接子级里的撑满型卡片，吃掉搜索栏之外的全部高度 */
+.wb-page > .wb-card--fill,
+.wb-page > .wb-card:has(> .wb-pro-table) {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* 分栏页：行内含撑满型卡片时，整行与各列一起拉伸 */
+.wb-page > .el-row:has(> .el-col > .wb-card--fill) {
+  flex: 1 1 0;
+  min-height: 0;
+
+  > .el-col {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+
+    > .wb-card--fill {
+      flex: 1 1 0;
+      height: auto;
+      min-height: 0;
+    }
+
+    > .wb-card:has(> .wb-pro-table) {
+      flex: 1 1 0;
+      min-height: 0;
+    }
+  }
+}
+
+.wb-flex {
+  display: flex;
+  align-items: center;
+}
+
+.wb-flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.wb-gap8 {
+  gap: 8px;
+}
+
+.wb-gap12 {
+  gap: var(--wb-gap);
+}
+
+.wb-mt12 {
+  margin-top: var(--wb-gap);
+}
+
+.wb-mb12 {
+  margin-bottom: var(--wb-gap);
+}
+
+.wb-text-muted {
+  color: var(--el-text-color-secondary);
+}
+
+.wb-ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 页面切换动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.fade-transform-enter-active,
+.fade-transform-leave-active {
+  transition: all 0.3s;
+}
+
+.fade-transform-enter-from {
+  opacity: 0;
+  transform: translateX(-24px);
+}
+
+.fade-transform-leave-to {
+  opacity: 0;
+  transform: translateX(24px);
+}
+
+.breadcrumb-enter-active,
+.breadcrumb-leave-active {
+  transition: all 0.4s;
+}
+
+.breadcrumb-enter-from,
+.breadcrumb-leave-active {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.slide-down-enter-active,
+.slide-down-leave-active {
+  transition: all 0.2s ease;
+}
+
+.slide-down-enter-from,
+.slide-down-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+/* 搜索表单：底部留白交给内部最后一行 .el-form-item 的 margin-bottom */
+.wb-search-form {
+  padding: var(--wb-gap) var(--wb-gap) 0;
+  margin-bottom: var(--wb-gap);
+}
+
+/* 表格工具条 */
+.wb-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wb-gap);
+  margin-bottom: var(--wb-gap);
+  flex-wrap: wrap;
+  flex: none;
+
+  /**
+   * 左右分组必须显式声明 flex + gap。
+   *
+   * 这两层之前一点样式都没有（计算值 display: block），组内按钮是 inline 排列，
+   * 实际间距来自 Element Plus 的 `.el-button + .el-button { margin-left: 12px }`。
+   * 那条规则只认「直接相邻的两个 el-button」，前提不满足的兄弟节点就拿不到这段间距：
+   * 列设置（components/ProTable/ColumnSetting.vue）的触发元素外面包了一层 `<span>`
+   * （为了给 el-popover 的 reference 挂 forwardRef，原因见该文件注释），
+   * 于是它左边距为 0 —— 实测右侧组内间距 [12, 12, 12, 0]，设置按钮紧贴上一个按钮。
+   *
+   * 换成容器统一给 gap 后，间距与子节点是什么标签无关；
+   * 同时把 EP 那条相邻 margin 归零，否则 gap 12 + margin 12 会叠成 24。
+   * 选择器权重 0,3,0 > EP 的 0,2,0，不需要 !important。
+   */
+  &__left,
+  &__right {
+    display: flex;
+    align-items: center;
+    gap: var(--wb-gap);
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .el-button + .el-button {
+    margin-left: 0;
+  }
+}
+
+/**
+ * 按钮内「图标 → 文字」的间距：slot 写法要自己补。
+ *
+ * Element Plus 给这段间距用的是一条**相邻兄弟**选择器：
+ *     .el-button [class*=el-icon] + span { margin-left: 6px }
+ * 它只对 `:icon` prop 的写法生效 —— 那时图标是那层 `<span>` 的兄弟节点：
+ *     <button class="el-button"><i class="el-icon"/><span>上传文件</span></button>
+ *
+ * 用 slot 手写图标时，图标落在 EP 自动包的那层 `<span>` **内部**，
+ * 相邻兄弟成了文本节点而不是 span，那条规则不匹配：
+ *     <button class="el-button"><span><i class="el-icon"/>新建文件夹</span></button>
+ * → 实测图标右边缘到文字左边缘的间隙：`上传文件` 6px、`新建文件夹` 与 `删除` 均 0px，
+ *   同一条工具条上两种间距并存，肉眼就是后两个「图标贴着字」。
+ *
+ * 不去补一条选择器 —— CSS 没法选中「相邻的文本节点」；改成给 EP 已经写成
+ * `inline-flex` 的那层 span 加 gap，间距就与子节点是什么标签无关了。
+ * 图标用 `:icon` prop 时不在 span 内，仍走 EP 原本的 margin-left: 6px，不受影响；
+ * 纯文字按钮的 span 里只有一个匿名 item，gap 不产生任何间距。
+ * 三个尺寸档位与 EP 的 6 / 8 / 4 保持一致。
+ */
+.el-button > span {
+  gap: 6px;
+}
+
+.el-button--large > span {
+  gap: 8px;
+}
+
+.el-button--small > span {
+  gap: 4px;
+}
+
+/**
+ * 单选按钮（el-radio-button）里的图标要与文字垂直居中。
+ *
+ * 这一层 EP 写的是 `display: inline-block; line-height: 1`，而图标是 `inline-flex`
+ * 且未设 vertical-align（默认 baseline）—— 图标的 1em 方盒底边贴到文字基线上。
+ * 图标 14px、中文字形的视觉高度只有 12px 上下，于是图标顶边几乎与文字顶边平齐、
+ * 底边反而高出 4px。实测（列表/网格两个按钮一致）：
+ *     图标 y 197…211  文字 y 196…215   中心 204 vs 205.5 → 图标偏上 1.5px
+ * 用户截图的像素扫描也印证同一特征：图标底边比文字底边高 4px。
+ *
+ * 顺带一提，EP 给这里的图标间距写的是
+ *     .el-radio-button__inner [class*=el-icon-] + span { margin-left: 5px }
+ * 注意选择器末尾那个短横线 —— 它匹配 `el-icon-xxx` 形式的 class，而图标渲染出来的
+ * class 就是 `el-icon`（没有尾部短横线），所以这条**根本没生效**，实测 gap 恒为 0。
+ *
+ * 改成 flex 居中会让按钮矮 2px（实测 inner 高度 32 → 30）——inline-block 时期
+ * 那 2px 是字体 descent 在基线下方撑出来的行盒空白，换成 flex 后内容高度只剩
+ * `line-height: 1` 的 14px，同行的普通按钮仍是 32px，视觉上会矮一截。
+ * 所以这里不动 display，只单独校正图标的对齐方式（高度、padding 一律不变）。
+ */
+.el-radio-group .el-radio-button__inner .el-icon,
+.el-checkbox-group .el-checkbox-button__inner .el-icon {
+  /**
+   * 间距：EP 那条 `[class*=el-icon-]+span { margin-left: 5px }` 因为选择器末尾
+   * 多了个短横线（只匹配 el-icon-xxx 形式的 class）而对不上我们的图标，直接给。
+   */
+  margin-right: 5px;
+
+  /**
+   * 垂直居中。EP 没给这里的图标设 vertical-align，默认就是 baseline ——
+   * 图标的 1em 方盒**底边贴在文字基线上**。实测图标底边 211、文字基线 211.02，
+   * 完全吻合。而中文字形的视觉中心在基线上方 0.44em 左右，图标中心却在基线上方
+   * 0.5em，于是图标整体偏高 1.5px（实测图标中心 204 vs 文字 205.5）。
+   *
+   * 下移用 position: relative + top，**不能用 vertical-align** —— 后者会参与行盒
+   * 高度计算：图标下移 1.4px 后它在基线上方的部分从 14px 变成 12.6px，
+   * 行盒跟着矮 1.39px（实测 inner 高度 32 → 30.61），同行的普通按钮还是 32px，
+   * 又矮了一截。relative 位移不参与布局，高度分毫不动。
+   * （.el-icon 本来就是 position: relative，见 element-plus 的 .el-icon 基础规则。）
+   */
+  top: 0.1em;
+}
+
+/**
+ * 对话框正文里的栅格行不要顶出横向滚动条。
+ *
+ * 成因不在表单本身：`el-row` 的栅格间距是靠**左右各 -gutter/2 的负外边距**实现的，
+ * 整行因此比容器宽一个 gutter（gutter=12 时实测溢出 6px）。父容器 overflow 可见时
+ * 它无害，但 ProDialog 的正文包在 `el-scrollbar` 里，滚动容器是 `overflow: auto`
+ * （双向），这 6px 就变成一条横向滚动条 —— 实测真实滚轮横滚能滚到 scrollLeft=6。
+ *
+ * 把负外边距归零即可从源头消除：行不再比容器宽，列自身的内边距照旧保留，
+ * 于是内容左右各内缩 gutter/2、两侧完全对称，列间距不变。
+ *
+ * 必须加 !important —— el-row 的负外边距是**组件写的内联样式**
+ * （row.vue 里 `styles.marginRight = styles.marginLeft = -gutter/2 + 'px'`），
+ * 内联样式优先级高于任何选择器。
+ *
+ * 之所以不用「给滚动容器加 overflow-x: hidden」这种兜底写法：那会连带裁掉
+ * tool/gen 代码预览里 el-scrollbar 正当的横向滚动（长代码行会看不全），
+ * 属于静默降级。
+ */
+.el-dialog__body .el-row {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}

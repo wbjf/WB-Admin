@@ -1,0 +1,10 @@
+dist
+node_modules
+coverage
+generated
+docs
+pnpm-lock.yaml
+package-lock.json
+types/auto-imports.d.ts
+types/components.d.ts
+*.log

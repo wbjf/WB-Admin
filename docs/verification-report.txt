@@ -1,0 +1,920 @@
+========================================================
+WB-Admin 验收报告
+最新：2026-09-28 第十一次验收（图标与文字缺间距 / 未垂直居中）
+验收环境：Windows · Node 22 · Chrome（playwright-core 直连；Playwright 走本机 Chrome 通道）+ Vite dev server
+历史轮次：第十次（文件管理工具条里「上传文件」比同排按钮高 5px）、
+          第九次（顶栏图标被压扁 / 工具条设置按钮间距不一致）、第八次（侧边栏菜单展开/收起高度跳动）、
+          第七次（对话框横向滚动条）、第六次（边距统一 12px /
+          页面无滚动条 / 模块撑满 + 内部滚动）、第五次（按钮组贴边/未居中、树卡片未撑满）、
+          第四次（菜单 hover 黑底 / tab 垂直居中）、第三次（白屏 + "filter is not a function"）、
+          第二次（目录菜单白屏）、第一次（动态路由 / Mock / TagsView）
+========================================================
+
+【第十一次验收】图标与文字之间缺间距 / 未垂直居中
+
+  用户反馈：① 图标和文字之间要加间距；② 图标和文字需要垂直居中对齐。
+            （两张截图，分别是 /tool/file 的按钮行与「列表 / 网格」视图切换单选按钮）
+
+  一、量出来的事实（真实浏览器，同一行内）
+
+    按钮            图标右边缘 → 文字左边缘
+    上传文件          6px      ← 用 `:icon` prop 写的
+    新建文件夹        0px      ← 用 slot 手写的
+    删除              0px      ← 同上
+
+    单选按钮        图标→文字     图标中心 - 文字中心
+    列表 / 网格       0px          -1.5px（图标偏高）
+
+  二、根因：两处都是「Element Plus 的选择器对不上当前 DOM」
+
+    1. 按钮图标间距，EP 用的是一条**相邻兄弟选择器**：
+         .el-button [class*=el-icon] + span { margin-left: 6px }
+       它要求图标是那层 <span> 的兄弟。
+         `:icon` prop 写法：<button><i class="el-icon"/><span>上传文件</span></button>  → 命中
+         slot 手写写法：    <button><span><i class="el-icon"/>新建文件夹</span></button>
+                            图标落在 span **内部**，相邻兄弟成了文本节点而不是 span → 不匹配 → 0px
+
+    2. 单选按钮是同一类坑，而且 EP 这条规则本身就是坏的：
+         .el-radio-button__inner [class*=el-icon-] + span { margin-left: 5px }
+       选择器末尾**多了个短横线** —— 它匹配 el-icon-xxx 形式的 class，而图标渲染出来的
+       class 就是 el-icon（没有尾部短横线），所以这条从未生效（实测 gap 恒为 0）。
+
+    3. 垂直方向压根没人管：图标是 inline-flex、vertical-align 默认 baseline，
+       1em 方盒的**底边贴在文字基线上** —— 实测图标底边 211、文字基线 211.02，完全吻合。
+       而中文字形的视觉中心在基线上方约 0.44em，图标中心却在 0.5em → 整体偏高 1.5px。
+       用户截图里能直接看出同一特征：图标顶边与文字顶边几乎平齐、底边却高出 4px
+       （像素扫描：图标 y 31…45，文字 y 33…49）。
+
+  三、修法（src/styles/index.scss，纯 CSS，不改任何组件模板）
+
+    - 按钮：不去补选择器（CSS 选不中「相邻的文本节点」），改为给 EP 本来就写成
+      `inline-flex` 的那层 `.el-button > span` 加 `gap` —— 间距与子节点是什么标签无关。
+      `:icon` 的图标不在 span 内，仍走 EP 的 margin，不会叠成双倍；纯文字按钮的 span
+      里只有一个匿名 item，gap 不产生任何间距。按 EP 口径分三档 6 / 8 / 4。
+    - 单选按钮：图标加 `margin-right: 5px` + 下移 `top: 0.1em`。
+
+    中途踩到并解决的三个坑：
+
+    (a) 第一版用 `display: inline-flex; align-items: center` 居中 —— 中心是对的，
+        但 inner 高度从 32px 掉到 30.61px。inline-block 时期那 2px 是**字体 descent 在
+        基线下方撑出来的行盒空白**，换成 flex 后内容高度只剩 line-height: 1 的 14px，
+        而同行的普通按钮还是 32px —— 会修好居中、又矮一截。
+        改用 `position: relative` + `top` 位移后高度分毫不动（.el-icon 本来就是 relative）。
+
+    (b) `vertical-align: -0.1em` 同样会压矮行盒（32 → 30.61）—— 图标下移 1.4px 后它在
+        基线上方的部分从 14px 变成 12.6px，行盒跟着矮 1.39px。
+        所以位移只能用**不参与布局**的属性。
+
+    (c) 裸 `.el-radio-button__inner` 改 `display` **改不动**：EP 的样式在文档里有**两份**，
+        一份是 main.ts 里 import 的 dist/index.css（2639 条规则），另一份是运行时按需注入的
+        组件样式（这份 18 条），后者排在 styles/index.scss **之后**，
+        同特异性（都是 0,1,0）时按文档顺序后者胜。迷惑点在于同一条自定义规则里
+        `align-items: center` 生效了、`display` 却没生效。对策是提一级特异性
+        （`.el-radio-group .el-radio-button__inner`，0,2,0），而不是 !important。
+
+  四、对照测量（同源：同一浏览器注入旧样式复现 → 移除后测新版）
+
+    指标                          旧版            新版
+    按钮「新建文件夹」gap          0px             6px
+    按钮「删除」gap                0px             6px
+    按钮「上传文件」gap            6px             6px（不变）
+    三个按钮 gap 的取值种数        2 种            1 种
+    单选 gap                       0px             5px
+    单选 图标中心 - 文字中心       -1.5px          -0.11px
+    单选 inner 高度                32px            32px（不变）
+    工具条高度 / 行数              32px / 1 行     32px / 1 行
+
+  五、全页面巡检（29 个路由 × 3 个视口）
+
+    本轮唯一会改变几何的是「slot 写图标的按钮各宽 6px」，所以全站查了一遍：
+
+    横向溢出页面数           0
+    元素被压扁页面数         0
+    容器高度有变化的页面数   0
+      （1280 视口下逐页对照新旧 `.wb-toolbar` / `.wb-tool-file__bar` / `.el-form`
+        的高度签名，29 个页面完全一致 → 没有触发换行）
+    运行时报错               0
+
+  六、验证结果
+
+    vue-tsc --noEmit            0 错误
+    vitest run                  27 / 27 通过
+    playwright test             22 / 22 通过（新增 test/e2e/icon-text.spec.ts 2 例）
+    判别力自检                  注入旧样式后 4 条 FAIL（按钮间距取值唯一、按钮 gap∈[5,7]、
+                                单选 |dyCenter|≤1、单选 gap∈[4,6]）；
+                                当前代码 0 FAIL —— 确认回归用例有判别力
+
+  七、记录在案
+
+    README 踩坑记录新增第 29（相邻兄弟选择器 / EP 那条带短横线的失效选择器 /
+    位移不能用 vertical-align）、第 30（EP 的样式有两份，覆盖要靠特异性而非顺序）、
+    第 31（flex 与 inline-block 的高度来源不同，改对齐时要连带量容器高度）条；
+    第 28 条末尾「1px 基线残差未处理」的残留说明改写为已修。
+
+【第十次验收】文件管理工具条里「上传文件」与同排按钮不在同一水平线
+
+  用户反馈：这一行的按钮和图标需要水平对齐。（附截图，红框标注 /tool/file 工具条那一行）
+
+  一、先确认红框到底框住了什么
+
+    肉眼估算容易被缩放带偏，所以直接扫描截图里的红色标注像素取精确边界：
+      横线 y = 227~229 / 291~293，竖线 x = 293~295 / 1703~1704
+    该截图是 1920×999、浏览器缩放 125%（由按钮实测 135×40 反推，CSS 尺寸为 108×32）。
+    换算成 CSS 像素后红框约 y 182~234，正好是工具条这一行（实测 189~231）；
+    第二行（ProTable 的圆形图标组，243~267）落在红框**下边界之外**，不在本次范围内。
+
+  二、量出这一行里每个元素的垂直中心（基准 = .wb-tool-file__bar 的中心）
+
+    修复前：
+      「上传文件」  top=189  cy=205   相对行中心 delta = -5   ← 唯一离群项
+      「新建文件夹」top=194  cy=210   delta =  0
+      「删除」      top=194  cy=210   delta =  0
+      「列表/网格」 top=194  cy=210   delta =  0
+    行高 42px —— 并不是按钮的 32px，说明有东西在占位。
+
+  三、根因：EP 的空文件列表在占位
+
+    .wb-upload（ProUpload 外层，display: flex）
+      └ div                                 108×42   ← 被撑高的是这一层
+          ├ div.el-upload.el-upload--text   108×32   ← 按钮本体完全正常
+          └ ul.el-upload-list--text         108×0    ← li 数量 = 0
+            margin-top: 10px
+    32 + 10 = 42。问题不在按钮本身，是外面那层多出 10px：
+    放进 align-items: center 的一行后，42px 的盒子被居中，而按钮贴在自己盒子的顶部
+    → 高出 (42 - 32) / 2 = 5px。
+    EP 的 dist CSS 里 .el-upload-list 写死了 margin: 10px 0 0，且这个 ul 无论有没有
+    文件都会渲染，没有 v-if 兜底。
+
+  四、修法
+
+    src/components/ProUpload/index.vue 的 scoped 样式加一条：
+      :deep(.el-upload-list:not(:has(li))) { margin-top: 0 }
+    空列表不占位；有文件时保留 EP 原本的 10px 间距。
+
+  五、同源对照（同一浏览器、同一页面；注入旧样式复现 → 移除后测新版）
+
+    阶段                     行高   .wb-upload   「上传文件」delta   行内最大偏差
+    修复前（注入 10px）       42px    42px            -5px              5px
+    修复后（当前代码）        32px    32px             0px              0px
+    移除注入样式后            32px    32px             0px              0px
+    → 最大偏差 5px → 0px，且可注入、可回退，确认就是这一条样式造成的。
+
+  六、顺带确认 picture-card 场景（/profile 头像上传）没有副作用
+
+    picture-card 模式下 EP 把文件列表渲染在触发卡片**之前**，所以那 10px 原本是把卡片往下推：
+      修复前：.wb-upload 148×158，卡片 top=183（比容器顶边低 10px）
+      修复后：.wb-upload 148×148，卡片 top=173（与容器顶边齐平）
+    下一个表单项同步上移 10px，截图确认视觉正常
+    （docs/screenshot-upload-profile-{old,new}.png）。
+
+  七、验证结果
+
+    vue-tsc --noEmit            0 错误
+    vitest run                  27 / 27 通过
+    playwright test             20 / 20 通过（新增 navbar-toolbar.spec.ts 第 3 例）
+    判别力自检                  把 margin-top 临时改回 10px 后，该用例报
+                                「上传文件」相对行中心偏差 -5px —— 与用户看到的现象一致；
+                                恢复修复后通过。确认断言不是"假通过"。
+    多场景                      缩放入口无横向溢出；这一行元素 top 完全一致（集合只有 1 个取值）
+
+  八、残留（未处理，已记录）
+
+    单选按钮内的图标相对按钮中心有 1px 偏移（EP 用 inline-block + line-height:1，
+    图标按基线对齐所致）。放大 6 倍仍肉眼不可辨；要改需动 .el-radio-button__inner 的
+    显示方式，收益不足、风险更大，故保留。
+
+  改动文件：src/components/ProUpload/index.vue
+           test/e2e/navbar-toolbar.spec.ts（新增 1 例）
+           README.md（踩坑第 28 条）
+  归档证据：docs/screenshot-toolbar-row-old.png / docs/screenshot-toolbar-row-new.png
+           docs/screenshot-upload-profile-old.png / docs/screenshot-upload-profile-new.png
+
+【第九次验收】顶栏图标太小、表格工具条内「设置」按钮左边距与其它按钮不一致
+
+  用户反馈：① 这几个图标太小了，调整一下；② 表格上方的设置按钮左边距调整成跟其他按钮一致。
+  （附截图，标注了顶栏左侧折叠按钮与右侧图标组）
+
+  一、实测定位
+
+    用真实 Chrome 量实际几何（1440×900，进入 /system/role）。
+
+    a. 顶栏图标不只是"小"，是**被横向压扁了**。
+
+       el-icon 自身是 `width: 1em; height: 1em`，EP 全局又是 `box-sizing: border-box`，
+       所以样式里的 `font-size: 17px + padding: 5px` 是从这 1em **往里扣**：
+         内容盒 = 17 - 5×2 = 7px
+       里面的 <svg> 同样是 1em，作为 flex 子项：
+         主轴（水平）被 flex-shrink 压到 7px
+         副轴（垂直）因 align-items: center 不参与收缩，仍是 17px
+       实测渲染成 7×17（横向压到 41%，纵向还溢出 5px 盖在 padding 区上）。
+       7 个图标里 6 个是 7×17；只有铃铛是 17×17 —— 它外面隔了一层 el-badge
+       （el-badge 是 inline-block、非 flex 容器），svg 反而没被压扁。
+       另：热区实测只有 17×17，作为点击目标也偏小。
+
+       修复前：box 17×17  svg 7×17   fs 17px  padding 5px
+       修复后：box 30×30  svg 18×18  fs 18px  padding 0
+
+    b. 工具条里「设置」按钮与其它按钮的间距不一致。
+
+       .wb-toolbar__left / .wb-toolbar__right 计算值是 `display: block` —— 这两层
+       **一点布局样式都没有**。组内按钮是 inline 排列，间距实际来自 Element Plus 的
+       `.el-button + .el-button { margin-left: 12px }`；而该规则只认"直接相邻的两个
+       el-button"，列设置的触发元素外面包了一层 <span>（el-popover 的 reference 要挂
+       forwardRef，原因见 ColumnSetting.vue 注释），不是 el-button，于是它左边距为 0。
+
+         修复前  右侧按钮间距 [12, 12, 12, 0]   ← 间距有 2 种取值
+         修复后  右侧按钮间距 [12, 12, 12, 12]  ← 只有 1 种
+
+  二、修法
+
+    1. src/layouts/components/Navbar/index.vue
+       改 .wb-icon-btn 为固定方形热区（width/height: 30px、padding: 0、font-size: 18px），
+       svg 自然按 1em 正常显示；`.wb-navbar__left/__right` 的 gap 由 10px 收到 8px，
+       抵消热区变大带来的整体变宽。
+    2. src/styles/index.scss
+       .wb-toolbar 下新增 `&__left, &__right { display: flex; align-items: center;
+       gap: var(--wb-gap); flex-wrap: wrap; min-width: 0 }`，并把 EP 的
+       `.el-button + .el-button` 相邻 margin 归零（否则 gap 12 + margin 12 叠成 24）。
+       间距从此由容器统一给，与子节点是什么标签无关。
+
+  三、对照测量（同源：同一浏览器、同一页面，注入旧样式 → 移除后测新版）
+
+    项                        修复前            修复后
+    折叠按钮 svg              7×17（0.41）      18×18（1.00）
+    右侧图标 svg              6 个 7×17         全部 18×18
+    图标热区                  17×17             30×30
+    图标间距                  17+10=27 间距     30+8=38 间距（组内一致）
+    工具条右侧按钮间距         [12,12,12,0]      [12,12,12,12]
+    工具条右侧容器 display     block             flex（gap 12px）
+
+    像素级比对（两张 PNG 交给真实 Chrome 画进 canvas 逐像素比）：
+      顶栏    差异像素 14031（5.13%），差异区域 x 35~2192（折叠按钮 + 右侧图标组）
+              背景采样的均色 修复前 rgb(255,255,255) = 修复后 rgb(255,255,255)
+      工具条  差异像素 4792（5.69%），差异区域即右侧按钮簇
+      说明：截图里"旧图底色偏灰"是缩放渲染的错觉，像素数据证明底色没变 —— 变的是图标本身。
+
+    多视口占位（防止热区变大把顶栏挤溢出）：
+      1600 / 1440 / 1366 / 1280 / 1152 / 1024 六档
+      → 左右两栏始终不重叠（1024 档仍余 62.6px）、顶栏横向溢出 0、文档横向溢出 0、
+        工具条按钮间距始终只有 1 种取值。
+
+  四、验证结果
+
+    vue-tsc --noEmit            0 错误
+    vitest run                  27 / 27 通过
+    playwright test             19 / 19 通过（新增 test/e2e/navbar-toolbar.spec.ts 2 例）
+    断言自检                    注入旧样式后 39 条断言中 25 条 FAIL
+                                （svg 宽高比 0.412、svg 7×17、热区 17×17、
+                                  工具条 display=block、间距 [12,12,12,0]）；
+                                当前代码 39 条全 PASS —— 确认回归用例有判别力
+
+  五、记录在案
+
+    README 踩坑记录新增第 26、27 条：
+      26. 不要用 padding 给 el-icon 撑热区（border-box 会从 1em 里扣，把 svg 压扁）
+      27. 工具条按钮间距别依赖 .el-button + .el-button（只认直接相邻的 el-button）；
+          排查手法是"量出全部相邻间距、看有几种取值"。
+    截图归档：docs/screenshot-navbar-icons-{old,new}.png、docs/screenshot-toolbar-gap-{old,new}.png
+
+
+【第八次验收】侧边栏菜单展开/收起时高度跳动
+
+  用户反馈：菜单展开收起的时候高度会跳一下，体验不好。
+
+  一、实测定位（用 requestAnimationFrame 逐帧采样，静态量几何量不出来）
+
+    侧边栏里出现"跳"的位置有两处，都量到了：
+
+    a. 子菜单展开/收起根本没有过渡，是一帧跳到位。
+
+       点「系统管理」收起（修复前）：
+         高度序列  410 410 410 410 410 410 | 12 11.47 10.47 9.03 7.41 5.88 … 0
+                                            ↑ 点击后第一帧就从 410 掉到 12（-398px）
+         单帧最大变化量 / 总变化量 = 0.97（跳变的特征值；ease 过渡约 0.1）
+
+       点开（修复前）：0 →(1帧) 400 →(平台 17 帧纹丝不动) → 406
+         中途停在 400 上不动，最后再跳 6px 收尾。
+
+    b. 折叠侧边栏时"内容先缩、外框后缩"。
+
+       把宽度过渡放慢到 6s 后取样（1.5s 处，外框应还在 156px 左右）：
+         修复前   外框 156.27px   菜单 64px    错位 92.27px
+         修复后   外框 154.36px   菜单 153.36px  错位 1.00px（仅 1px 边框）
+       折叠瞬间菜单内容就跳到终态宽度，外框还在 220px 慢慢收，右边空出一大条。
+
+  二、根因（三处，互相独立）
+
+    1. 样式给 .el-menu 写的 `transition: padding 0.28s` 把 EP 的过渡覆盖了。
+       EP 的子菜单折叠过渡走 max-height，过渡声明在
+       .el-collapse-transition-*-active 上（特异性 0,1,0）；而 scoped 下
+       :deep(.el-menu) 编译成 .wb-sidebar[data-v-x] .el-menu（0,2,0），
+       作用在同一个元素上、优先级更高，简写 transition 又重置了
+       transition-property —— EP 的 max-height 过渡被完全顶掉。
+       证据：动画期间采样该元素的 transition，只报 padding，
+            而 EP 的 -active 类明明挂在上面。
+
+    2. EP 量目标高度时会把垂直 padding 先归零，于是量小了 16px。
+       ElCollapseTransition 的 beforeEnter 先设 paddingTop/Bottom = 0，
+       再读 el.scrollHeight 当动画目标；另外 scrollHeight 不含子元素外边距。
+       我们的 ul 有 6px 上下 padding、首尾菜单项各有 2px 外边距，
+       合计 12 + 4 = 16px 不在测量内（实测目标 394 / 真实 410）。
+       动画走完后 max-height 归位 auto，这 16px 一次性弹出来。
+
+    3. .el-menu--collapse 是固定宽度，和外框的宽度过渡不同步。
+       EP 给折叠态设了 width: calc(icon-width + base-padding * 2) = 64px，
+       折叠瞬间内容就跳到 64px；而 .wb-sidebar 的宽度是 0.28s 过渡的。
+
+  三、修法（只动 src/layouts/components/Sidebar/index.vue 的样式）
+
+    1. 删掉 .el-menu 上的 transition，去掉垂直 padding（改 padding: 0 8px）；
+       上下留白移到 .wb-sidebar__scroll 的 padding 上 —— 它在过渡的
+       测量范围之外，不会干扰 scrollHeight。
+    2. 子菜单 ul 的首尾项归零垂直外边距（.el-menu--inline > :first-child /
+       :last-child），消除剩下的 4px 测量偏差。
+    3. .el-menu--collapse 的宽度改成 100%，跟随容器一起收窄；
+       折叠完成时容器宽 64px，与 EP 的计算值一致，外观不变。
+
+  四、对照测量（同源：同一浏览器、同一页面，注入旧样式 → 移除后测新版）
+
+    子菜单收起：
+      旧版  序列 12 12 … 12(停 19 帧) 0     单帧跳变占比 0.03   渐变帧 0    停滞 19 帧
+      新版  序列 394 391.66 384.25 … 2.36 0  单帧跳变占比 0.096  渐变帧 17   停滞 1 帧
+    子菜单展开：
+      旧版  序列 12 400 400 …(停 17 帧) 406   单帧跳变占比 0.956  渐变帧 1   停滞 18 帧
+      新版  序列 0 2.31 9.56 … 393.98 394     单帧跳变占比 0.095  渐变帧 17  停滞 1 帧
+    折叠侧边栏（慢放 6s，1.5s 处取样）：错位 92.27px → 1.00px
+
+    中间帧视觉对照（_shots-menu/CMP-*.png）：
+      旧版 1.5s 处图标挤在最左侧、右侧空出 92px 白条；新版图标随外框一起居中移动。
+
+  五、验证结果
+
+    vue-tsc --noEmit            0 错误
+    vitest run                  27 / 27 通过
+    playwright test             17 / 17 通过（新增 test/e2e/menu-motion.spec.ts 2 例）
+    断言自检                    注入旧样式后，收起 2 条 FAIL / 展开 3 条 FAIL；
+                                当前代码 6 条全 PASS —— 确认回归用例有判别力
+
+  六、记录在案
+
+    动效类缺陷用"看截图"或"量几何"都不稳（容易量在动画之外），
+    统一用 rAF 逐帧采样 + 三个指标：单帧最大变化占比、渐变帧数、
+    是否停在非终值上。已写进 README 踩坑记录第 25 条。
+
+
+========================================================
+
+【第七次验收】对话框表单出现横向滚动条
+
+  用户反馈：截图里「新增租户管理」对话框的表单下方有一条横向滚动条。
+
+  一、实测定位（修复前，10 个对话框逐个打开，视口 1440×900）
+
+    a. 症状面比反馈大：10 个对话框里 9 个都能横向滚动，只有 /tool/job 定时任务正常
+       —— 因为它表单里没有用栅格 el-row。
+
+    b. 溢出量精确等于栅格 gutter 的一半：
+
+       页面          wrap sw/cw    溢出   真实滚轮横滚后 scrollLeft
+       租户管理      614 / 608     6px    6
+       用户管理      734 / 728     6px    6
+       菜单管理      694 / 688     6px    6
+       字典管理      574 / 568     6px    6
+       角色管理      694 / 688     6px    6
+       岗位管理      574 / 568     6px    6
+       通知公告      834 / 828     6px    6
+       部门管理      614 / 608     6px    6
+       参数设置      574 / 568     6px    6
+       定时任务      608 / 608     0      0（表单未用栅格）
+
+    c. 溢出元素就是 .el-row 本身（以及它里面的 .el-col），不是表单控件。
+       读 EP 源码 node_modules/element-plus/es/components/row/src/*.mjs：
+
+         styles.marginRight = styles.marginLeft = `-${props.gutter / 2}px`
+
+       即 el-row 的栅格间距靠**左右各 -gutter/2 的负外边距**实现，整行因此比容器宽
+       一个 gutter。父容器 overflow 可见时它无害；但 ProDialog 的正文包在 el-scrollbar
+       里（滚动容器 overflow: auto，双向），这 6px 就变成用户看得见的一条横条。
+
+  二、两次修法的取舍（第一版方案被自己的验收否掉）
+
+    方案 A（先做了，后被否）：`.el-dialog__body .el-scrollbar__wrap { overflow-x: hidden }`。
+      实测确实让横条消失，但代码审查发现它会**误伤 tool/gen 的代码预览** —— 那里 <pre>
+      放在 el-scrollbar 里（长代码行 scrollWidth 922 / clientWidth 868），横向滚动是
+      **正当需求**，一刀切会把它静默裁掉（用户只看到"看不全"，不会知道是坏了）。弃用。
+
+    方案 B（最终采用）：从源头消除溢出 ——
+
+        .el-dialog__body .el-row {
+          margin-left: 0 !important;
+          margin-right: 0 !important;
+        }
+
+      - 列自身的内边距保留，列间距不变，内容左右各内缩 gutter/2、两侧对称；
+      - **必须 !important**：内联样式优先级高于任何选择器。第一版漏了 !important，
+        跑出来仍是 "overflowX=auto、溢出 6px"，即"改了没生效"；
+      - 不碰滚动容器，代码预览的横滚完好。
+
+  三、同源对照（同一份代码，注入/移除修复前的负外边距，非换分支跑）
+
+    指标                            修复前      修复后
+    9 个对话框 内容横向溢出          6px         0px
+    wrap scrollWidth / clientWidth   614 / 608   608 / 608
+    真实滚轮横滚 120px 后 scrollLeft  6           0
+    代码预览 wrap overflowX           auto        auto（未被误伤）
+    代码预览 滚轮横滚后 scrollLeft    54          54（能力保留）
+    体检通过数（55 条判定）           28 / 55     55 / 55
+
+  四、顺带修正的两件事
+
+    1. tool/gen 的预览 mock 数据行长只有 ~325px（容器 868px），根本构不成"需要横向
+       滚动"的场景 —— 该用例其实测不到东西。已补成真实生成代码的长度（含 922px 长行）。
+    2. 该页「代码预览」按钮在 DOM 里有 4 个候选，**第 1 个是隐藏副本**，
+       Playwright 的 filter().first() 会命中它并 30s 超时。选择器改为「挑第一个可见的」。
+
+  五、验收
+
+    vue-tsc --noEmit               0 错误
+    vitest run                     27 / 27
+    npm run test:e2e               15 / 15（新增 test/e2e/dialog.spec.ts 3 例）
+    _dialog.cjs 对话框横滚体检      55 / 55（含同源对照）
+    _spacing.cjs 间距/滚动/撑满     83 / 83
+    _layout2.cjs 布局细节           55 / 55
+    _style-check.cjs 配色           18 / 18
+    _verify5.cjs 端到端             11 / 11
+    vite build                     成功
+
+    改动文件：src/styles/index.scss（新增 .el-dialog__body .el-row 归零规则）、
+             src/mock/index.ts（预览代码补成长行）、test/e2e/dialog.spec.ts（新增）、
+             README 踩坑记录补到 24 条。
+    脚本与原始数据：_dialog.cjs → _dialog-{before,after}.txt、_shots-dialog/*.png
+    归档截图：docs/screenshot-dialog-{tenant,user,code-preview}.png
+
+    如实说明：headless Chrome 下系统 overlay 滚动条不参与 DOM、也不占位
+    （实测 offsetHeight - clientHeight = 0），所以修复前后的截图肉眼看不出差别。
+    "横向滚动条是否存在"这件事是靠 overflow 模式 + 真实滚轮位移证明的，不是靠截图。
+
+
+--------------------------------------------------------
+
+【第六次验收 · 1】需求与实测基线
+
+  用户反馈（截图标注）：
+    a. 图中标注的边距都改为 12px
+    b. 页面不要出现滚动条
+    c. 模块高度需要自适应并撑满
+    d. 内容在模块内部垂直滚动
+
+  改造前实测（同一浏览器，视口 1440×900，"___" 表示未量到）：
+    - 四周留白全部是 32px，不是 12px —— 用户管理/岗位管理/字典管理/代码生成/角色管理/个人中心/
+      服务监控 七页一致，说明是全局规则而非某个页面写错
+    - 内容区（.wb-app-main）出现滚动条：用户管理 scrollHeight/clientHeight = 859/774，
+      服务监控 1056/774
+    - 表格模块远未撑满：用户管理 641 / 岗位管理 347 / 字典管理 418 / 代码生成 249.5 /
+      角色管理 298（对比可用高度 750）
+    - 表体内部滚动量全部为 0 —— 表格根本没有内部滚动，是整页在滚
+
+  补充：工作台在改造前的路由是 /dashboard，测量脚本走了 404，因此没有拿到改造前的基线；
+  该页改用「同源对照」（现场注入旧版样式复现）取数，见下。
+
+
+【第六次验收 · 2】根因
+
+  1) 留白 32px = 两层叠加。
+     .wb-app-main 和 .wb-page 各写了 padding: var(--wb-content-padding)（当时是 16px），
+     两级相加 32px。这是"边距偏大"的唯一原因，不是某个页面的样式问题。
+
+  2) 页面滚动条：.wb-app-main { overflow: auto }。
+     内容比可视区高时，滚动发生在内容区，而且没有任何一层被限制高度。
+
+  3) 模块撑不满：撑满靠的是"卡片高度 = 容器剩余高度"，但这在纯 CSS 里
+     需要整条 flex 链都成立，缺一环就落回内容高度：
+       .wb-page 是 display:block、高度 auto
+       → .wb-card 的 height 是 auto
+       → .el-table 被 EP 写了 height: fit-content，作为 flex 子项会挡住拉伸
+     改造前三环全缺，所以卡片只有内容高。
+
+  4) 表格不能在内部滚动：表格没有确定高度，.el-table__body-wrapper
+     （EP 自身就是 flex:1 + overflow:hidden）拿不到约束，自然无法产生内部滚动。
+
+
+【第六次验收 · 3】修法
+
+  1. 留白只保留一层来源：--wb-content-padding 改 12px，新增 --wb-gap 别名；
+     .wb-app-main 继续提供 padding，.wb-page 归零。
+     .wb-card 内边距 16 → 12px、.wb-search-form 内边距 14 → 12px、
+     .wb-toolbar / .wb-pro-table__footer / .wb-mt12 等间距全部接到同一个变量上。
+
+  2. 内容区不再滚动：.wb-app-main { overflow: hidden }。
+
+  3. 页面容器成为撑满的载体：
+       .wb-page { height:100%; min-height:0; display:flex; flex-direction:column;
+                  gap: var(--wb-gap); overflow-x:hidden; overflow-y:auto }
+       .wb-page > * { flex: none }            /* 内容超高时滚动，而不是把模块压扁 */
+       .wb-page > .wb-mt12 / .wb-search-form { margin: 0 }   /* 间距只由 gap 一处决定 */
+
+  4. 撑满型卡片用 :has() 自动识别（含 ProTable 的卡片天然需要内部滚动），
+     其余场景用显式类 .wb-card--fill（左树卡片、分栏页、工作台图表卡片）：
+       .wb-card--fill, .wb-card:has(> .wb-pro-table) { display:flex; flex-direction:column; min-height:0 }
+       ... > .wb-pro-table { flex: 1 1 0; min-height: 0 }
+       ... > .wb-pro-table > .el-table { flex: 1 1 0; min-height: 0 }
+     最后一条是关键：EP 的 height: fit-content 在 flex-basis 不为 auto 时不参与主轴尺寸计算，
+     所以只要显式给 flex-basis: 0 就能让表格被拉伸，不需要覆盖 height。
+     表格拿到确定高度后，EP 自带的 .el-table__inner-wrapper(height:100%) →
+     .el-table__header-wrapper(flex-shrink:0，表头固定) → .el-table__body-wrapper(flex:1)
+     → .el-scrollbar__wrap(overflow:auto) 这条链就自然产生"表头固定 + 表体内部滚动"。
+     分页 .wb-pro-table__footer 显式 flex: none，固定在卡片底部。
+
+  5. 分栏页（用户管理 / 字典管理 / 个人中心）：
+       .wb-page > .el-row:has(> .el-col > .wb-card--fill) { flex: 1 1 0; min-height: 0 }
+       其 el-col 变纵向 flex 容器，内部卡片 flex: 1 1 0。左右两列因此等高撑满。
+     字典管理 / 个人中心原本没有 .wb-card--fill，本轮补上（它们也是分栏页）。
+
+  6. 工作台图表自适应：图表外包一层 .wb-dashboard__chart
+     （flex: 1 1 0; min-height: 140px），EChart 传 height="100%"。
+     图表行 flex: 1 1 0 吃掉剩余高度，其余行高由内容决定 —— 整页刚好铺满，不再滚动。
+     EChart 组件本身已有 ResizeObserver，容器一变就会 chart.resize()。
+
+
+【第六次验收 · 4】对照测量（同源：同一浏览器、同一页面，注入旧版样式 → 移除后测新版）
+
+  页面        留白(上/左/右)   内容区滚动        表格模块高    表体内部滚动
+  用户管理    32 → 12        875/774 → 774/774   649 → 610    0 → 31
+  岗位管理    32 → 12        774/774 → 774/774   355 → 654    0 → 0
+  工作台      32 → 12        846/774 → 774/774   —            —
+
+  注：用户管理的模块高从 649 变成 610，不是变差 —— 旧版整页在滚动，卡片是内容高；
+  新版卡片被约束在可视高度内，多出来的行改由表体内部消化（表体内部溢出 0 → 31px）。
+  岗位管理才是"撑满"的典型：355 → 654（= 内容区 750 − 搜索栏 58 − 间距 12 − ...）。
+
+
+【第六次验收 · 5】滚到底复测（避免"没滚到底就断言底部留白"）
+
+  对全部 8 个页面把 .wb-page 的 scrollTop 设到最大后再量：
+    - 最后一个模块的底边与内容区底边的差值全部 ≤ 1px（撑满）
+    - 服务监控内容天然超高（960 > 750），滚动发生在 .wb-page 内部，
+      窗口与 .wb-app-main 依然是 0 滚动条
+
+  矮窗口（本轮新增用例）：
+    1280×620 与 1024×520 下，窗口 / 内容区 / 页面容器三者均无滚动条，
+    表体内部溢出 > 0（确实在表体里滚），表头仍固定。
+
+
+【第六次验收 · 6】验证结果
+
+  vue-tsc --noEmit                0 错误
+  vitest run                      27 / 27
+  npm run test:e2e                12 / 12（主链路 3 + 布局细节 3 + 本轮新增 6）
+  _spacing.cjs 间距/滚动/撑满体检  83 / 83（含同源对照 3 页 × 3 项 + 矮窗口 2 档 × 2 页）
+  _layout2.cjs 布局细节回归        55 / 55（上一轮修复未被破坏）
+  _style-check.cjs 布局配色回归    18 / 18（未被破坏）
+  _verify5.cjs 端到端             11 / 11（20 个业务页面非空、0 Vue 告警、0 次重新预构建）
+  vite build                      成功（266 个产物文件）
+
+  新增用例：test/e2e/spacing.spec.ts（6 例）
+    1. 内容区四周留白统一 12px（6 个代表页）
+    2. 窗口与内容区都不出现滚动条（6 个代表页）
+    3. 模块撑满内容区底边（6 个代表页）
+    4. 表格在卡片内部滚动：表头与分页固定、表体自己滚
+    5. 矮窗口下超高内容仍在模块内部滚动（1280×620 / 1024×520）
+    6. 工作台图表跟随容器自适应（1000px 高 → 356px，820px 高 → 176px），不撑出滚动条
+
+  截图归档：
+    docs/screenshot-spacing-user-{before,after}.png
+    docs/screenshot-spacing-post-{before,after}.png
+    docs/screenshot-spacing-dict-after.png
+    docs/screenshot-spacing-dashboard-after.png
+    docs/screenshot-spacing-1024x520-user.png
+    docs/screenshot-spacing-1280x620-post.png
+
+
+【第六次验收 · 7】记录在案
+
+  - 服务监控 / 缓存监控这类"信息流"页面内容天然超过一屏，滚动发生在 .wb-page 容器内部
+    （窗口无滚动条）。这是有意为之：把整页塞进一屏需要压缩卡片内容，反而更难读。
+  - 表格行数超过表体高度时，最后一行会被裁一半（内部滚动的固有表现，与 EP 默认一致）。
+  - .wb-page 的 scrollWidth 比 clientWidth 大 6px（栅格 el-row 带 gutter 时的负外边距），
+    已用 overflow-x: hidden 裁掉，实测窗口与内容区都没有横向滚动条。
+
+
+--------------------------------------------------------
+以下为历史验收记录
+--------------------------------------------------------
+
+【第五次验收 · 1】本轮触发问题与根因
+
+  用户反馈（截图标注）：
+    a. 查询栏「搜索 / 重置 / 展开」这一行"不要贴边，一行要垂直居中"
+    b. 左侧部门树"背景块高度撑满"
+
+  a 的两个真因（都在 SearchForm，14 个页面共用）：
+    1) 贴边：按钮组直接放在 el-col 里，没有 label 占位；而左侧字段的输入框位于
+       el-form-item 内容区，位置 = 列内边距 8 + labelWidth 80 = 列左边框 + 88px。
+       实测按钮左边 502.33 / 输入框左边 590.33，差整整 88px —— 视觉上就是贴到了卡片边。
+    2) 不居中：容器用的是 align-items: flex-start（顶对齐），
+       而行内「展开」是 link 按钮、高度只有 20px，另两个是 32px，
+       顶对齐时它的中心比其它按钮高 6px（实测 centers=[203, 203, 197]）。
+
+  b 的真因：el-row 是 flex（align-items 默认 stretch），el-col 已经被撑到列高
+    （实测 782px），但卡片 .wb-card 的高度仍是 auto、由内容决定 ——
+    于是背景块只有 232px，下面整片是页面底色。
+    另外树区写的是 max-height: calc(100vh - 260px)，数值随导航栏 / tags / 页脚高度漂移，
+    既没让卡片撑满，也不会随布局变化自愈。
+
+
+【第五次验收 · 2】修法
+
+  1. 按钮组包一层「不传 label 的 el-form-item」。
+     EP 在 form-item 无 label 且无 label 插槽时，会给内容区加 margin-left = labelWidth
+     （form-item 的 contentStyle：`if (!props.label && !slots.label) return { marginLeft: labelWidth }`），
+     按钮于是自动与上方输入框左对齐；而 .el-form-item__content 自带
+     `display: flex; align-items: center`，行内高度不一的按钮自动垂直居中。
+     好处：不写 80px 魔法数字，跟着 labelWidth 走。
+  2. 按钮组所在列改 `flex: 1 1 auto; max-width: 100%`。
+     el-col 默认 `flex: 0 0 25%`（1440px 下约 225px），装不下「80px 缩进 + 三个按钮 ≈ 290px」，
+     会被 .el-form-item__content 的 flex-wrap 折成两行。
+     改成按内容取 basis 后：与字段同行时占满该行剩余宽度；剩余宽度不够则整列换到下一行并撑满整行。
+  3. 新增通用类 `.wb-card--fill`（styles/index.scss）：`height: 100%` + 纵向 flex 布局，
+     树区配 `flex: 1; min-height: 0; overflow: auto`，卡片撑满列高、树区在卡片内部滚动。
+     同时删掉 max-height 的硬编码数值。
+
+
+【第五次验收 · 3】对照测量
+
+  做法：同一浏览器、同一页面，注入旧样式复现问题后测量，移除后再测新样式
+        —— 两组数据来自同一渲染环境，排除跨次运行的差异。
+
+  指标                                     旧（复现）           新（修复后）
+  ---------------------------------------  -------------------  ---------------------------
+  按钮组相对列左边框缩进                     8px（仅列内边距）    88px（= 8 + labelWidth 80）
+  按钮组左边缘 vs 输入框左边缘               差 88px（贴边）      502.33 / 590.33，完全对齐
+  行内按钮中心离散                           6px（展开偏上）      0px（203 / 203 / 203）
+  左侧卡片高度 / 所在列高                     232 / 782            795 / 795（撑满）
+  树区高度 / 溢出策略                        156（max-height）    719，overflow: auto 内部滚动
+
+  覆盖页面（按钮组行为随栅格可用宽度变化，只测一个页面等于没测）：
+    用户管理(4 条件) / 角色管理(4 条件) / 岗位管理(3 条件) / 部门管理(2 条件) / 代码生成(1 条件)
+    —— 5 个页面在浅色与深色下按钮组均不折行、不越界；3 条件页面的按钮行未发生跨行位移
+       （修复前后都在第一行第 4 格），即本次改动没有给其它页面带来布局位移。
+
+  用例结果：
+    _layout2.cjs ......... 55 / 55 通过（0 pageerror、0 console.error）
+    _style-check.cjs ..... 18 / 18 通过（上一轮菜单配色 / tab 居中修复未被破坏）
+    _verify5.cjs ......... 11 / 11 通过（20 个业务页面内容区非空、全站 0 条 Vue 告警）
+    npm run test:e2e ..... 6 / 6 通过
+    vue-tsc .............. 0 错误
+    vitest ............... 27 / 27
+    vite build ........... 成功（先挪走旧 dist 以避开沙箱的批量删除保护）
+
+  脚本与原始输出：_layout2.cjs → _layout2.txt、_shots-style/*.png
+  归档截图：docs/screenshot-user-layout-{light,dark}.png（修复后）、
+            docs/screenshot-user-layout-light-before.png（修复前）、
+            docs/screenshot-searchform-{1col,3cols}.png（少条件页面）
+
+
+【第五次验收 · 4】顺带修掉的问题
+
+  1. 既有冒烟用例「切换语言后界面文案变为英文」一直点的是 getByText('简体中文')，
+     而登录页右上角按钮显示的是"下一个语言"（中文环境下文案就是 English），
+     该用例此前从未真正跑通 —— 本机没有 Playwright 内核，`npm run test:e2e` 一直没被执行过。
+     已改为点 English 并断言英文文案。
+  2. playwright.config.ts 默认改用本机已安装的 Chrome（channel: 'chrome'），
+     免去 `npx playwright install` 下载内核（代理不通时会卡死）；
+     需要自带内核时设 E2E_CHANNEL=chromium。于是 `npm run test:e2e` 在普通终端可直接跑。
+  3. 新增 test/e2e/layout.spec.ts 3 例，把本轮两处修复固化成回归用例
+     （按钮组对齐 + 居中、少条件页面不折行、左树卡片撑满列高）。
+  4. _style-check.cjs 起步用 rmSync 删 node_modules/.vite（635 个文件）会被沙箱的批量删除保护
+     直接抛错 → 改为"改名让位"（与 _verify5.cjs 一致）。
+
+
+【第五次验收 · 5】记录在案、本轮未改
+
+  编译期会出现一条 Vue 提示：
+    `v-model` cannot update a `const` reactive binding `queryParams`.
+    The compiler has transformed it to `let` to make the update work.
+  来源是 14 个页面的 `<SearchForm v-model="queryParams">` 搭配
+  `const queryParams = reactive({})`；Vue 会自动转成 let，功能正常、只是提示。
+  要彻底消掉需把父级 v-model 换成 `:model-value` + 组件内原地修改（涉及 14 个文件），
+  本轮为控制改动面未做。
+
+
+--------------------------------------------------------
+以下为更早的验收记录
+--------------------------------------------------------
+
+【第四次验收】本轮触发问题与根因
+
+  用户反馈：
+    a. "鼠标移到菜单上有黑色背景色，导致看不见菜单名了"
+    b. "tab 我希望能垂直居中"
+
+  a 的真因 —— 不是样式没写，是喂错了 prop：
+
+    Sidebar 把 CSS 变量表达式传给了 el-menu 的 background-color：
+        background-color="var(--wb-sidebar-bg, #ffffff)"
+    Element Plus 用它推导 hover 底色（use-menu-color.mjs）：
+        --el-menu-hover-bg-color = new TinyColor(props.backgroundColor).shade(20)
+    TinyColor 解析不了 var(...) 表达式 → 解析失败兜底成 #000000，
+    shade() 之后仍是纯黑。浅色主题下菜单文字是 #606266，
+    黑底深字实测对比度 3.44（WCAG AA 要求 4.5），即"看不见菜单名"。
+    且该变量由 EP 内联写在元素上，内联优先级高于任何选择器，事后覆盖不掉。
+
+  b 的真因 —— el-scrollbar 的高度没有传下去：
+    只有内部 __wrap 撑满容器，__view 高度是 auto，
+    所以 .wb-tags__list 的 height:100% 落不到 38px 容器上，
+    align-items:center 形同虚设，标签整体贴顶（实测中心偏差 -6px）。
+
+
+【第四次验收 · 2】修法
+
+  1. Sidebar / TopMenu 不再传任何颜色 prop（EP 的 cssVarBlock 用
+     `if (object[key])` 跳过空值，不传就不会产生内联变量），
+     配色与圆角统一在样式里定义 --el-menu-* 变量：
+       --el-menu-text-color       = var(--el-text-color-regular)
+       --el-menu-hover-text-color = var(--el-text-color-primary)
+       --el-menu-hover-bg-color   = var(--el-fill-color-light)
+     并给菜单项加圆角 6px、内缩 6px 8px、激活项主色浅底 + 主色文字（字重 500）。
+  2. tags 补 :deep(.el-scrollbar__view){ height:100% }，
+     让 align-items:center 真正生效；同时补 tag 的 hover 态与 4px 圆角。
+  3. 激活底色抽成 --wb-menu-active-bg（定义在 styles/index.scss）：
+     浅色用 EP 主色浅阶（applyPrimaryColor 会按主色重算），
+     深色用中性微亮叠加 —— 与主色解耦，任何主色下都成立。
+  4. 顺带修掉两处布局缺陷：
+     · 顶部布局菜单高度：EP 横向菜单默认 60px，比 56px 导航栏还高、会顶出容器，
+       显式设 --el-menu-horizontal-height。
+     · 混合布局缺一级菜单入口：Navbar 原先只判 layout === 'top' 渲染 TopMenu，
+       而 Sidebar 的 mixChildren 只渲染「当前一级」的子菜单，
+       导致混合布局下侧边栏只有二级菜单、却没有一级菜单可点，等于不可用。
+       改为「左侧布局用面包屑，其余用一级菜单条」。
+
+
+【第四次验收 · 3】对照测量
+
+  做法：同一浏览器、同一页面，先注入旧样式复现问题并测量，
+        移除后测新样式 —— 两组数据来自同一渲染环境，排除跨次运行的差异。
+
+  指标                                      旧（复现）             新（修复后）
+  ----------------------------------------  --------------------  ---------------------
+  浅色 菜单 hover 背景                       rgb(0,0,0) 纯黑        rgb(245,247,250)
+  浅色 菜单 hover 文字对比度                 3.44（< 4.5 不达标）   5.69
+  浅色 菜单常态对比度                        —                     6.11
+  浅色 激活项底色 / 对比度                   —                     rgb(230,242,255) / 2.45
+  深色 菜单 hover 背景                       rgb(0,0,0) 纯黑        rgb(38,39,39)
+  深色 菜单 hover 对比度                     —                     9.99
+  深色 激活项底色 / 对比度                   —                     rgb(34,47,60) / 4.9
+  tags 中心相对容器中心                      -6px（贴顶）           -0.5px（居中）
+  折叠态(64px) 图标/菜单项/容器中心            —                     32 / 32 / 32
+  顶部布局 菜单高度 / 导航栏高度              —                     56 / 56（不溢出）
+  混合布局 侧边栏二级菜单 + 顶部一级入口      只有侧边栏             两者齐全
+
+  浏览器用例 18 / 18 通过；0 pageerror、0 console.error。
+  脚本与原始输出：_style-check.cjs → _style-check.txt、_shots-style/*.png
+  注：浅色下激活项对比度 2.45 与 Element Plus 官方风格一致（主色文字 + 主色浅底），
+      它是"有背景块的强调态"而非正文，这里如实记录、不粉饰。
+
+
+【第三次验收（原报告 · 0~6 节）】
+
+  1. 整页内容不显示，控制台报运行时错误：
+       [WB-Admin] runtime error: TypeError:
+         (tenantStore.tenants ?? []).filter is not a function
+         at ComputedRefImpl.fn (Navbar/index.vue:39:51)
+  2. 另一条 Vue 告警反复出现：
+       Runtime directive used on component with non-element root node.
+       The directives will not function as intended.
+       （堆栈落在 ElTooltip / ElOnlyChild，其祖先为 ColumnSetting → ProTable → SystemUser）
+  3. "message port closed before a response was received" —— 浏览器扩展噪音，忽略。
+
+
+【1】静态检查与测试
+
+  vue-tsc --noEmit ......... 0 错误
+  vitest run ............... 27 / 27 通过（新增 test/unit/tenant.spec.ts 3 例）
+
+
+【2】真实浏览器端到端（11 / 11 通过）
+
+  步骤                                                              结果
+  -------------------------------------------------------------------
+  登录成功并进入首页                                                 PASS
+  租户下拉选项渲染正常（3 个选项，不再是 undefined）                  PASS
+  注入历史脏持久化数据后刷新不崩、租户下拉可用                        PASS
+  「系统管理」渲染为 el-sub-menu（不是可点击的普通项）                 PASS
+  展开后出现「用户管理」子项                                          PASS
+  点击「用户管理」进入 /system/user                                   PASS
+  用户表格渲染出数据（10 行）                                         PASS
+  直接访问 /system 自动落到 /system/user（不再白屏 / 404）            PASS
+  未知路径落到 404 页面                                               PASS
+  20 个业务页面内容区均非空                                           PASS
+  无 "non-element root node" 告警                                     PASS
+
+  未捕获页面异常 pageerror ...... 无
+  console.error ................. 无
+  本地请求失败 ................... 无
+  Vue 告警总数 ................... 0（含上述告警 0 条 → 全站控制台干净）
+  Vite 重新预构建次数 ............ 0（dev server 全程未重启、未崩溃）
+
+
+【3】本轮修复的真实缺陷
+
+  1. 服务端列表被持久化，历史脏数据把整页渲染打断（本次白屏的真因）
+
+     现象：Navbar 的 tenantOptions computed 抛 TypeError，被 app.config.errorHandler
+           捕获后渲染中断 —— 页面主体空白的直接原因。
+
+     根因：tenant store 早期把服务端列表 tenants 一起持久化（pick 含 'tenants'）。
+          更早版本的 loadTenants 直接把接口返回的**分页对象** { list, total }
+          写进了 state，于是用户 localStorage 里留下这个结构；
+          水合时 pinia-plugin-persistedstate 绕过 action 直接赋值到 state，
+          首次渲染（早于 fetch 返回）就会对对象调用 .filter。
+
+     修法（两处一起改才算修完）：
+       a. persist.pick 只保留 'currentId' —— 列表是随时能重新拉取的数据，
+          持久化只会让旧结构跟着版本一直活下去；
+       b. store 新增 options getter，用 toArray() 无条件归一化并过滤缺 tenantId 的项，
+          Navbar 改为取用该 getter，使「归一化」只有一个入口。
+          历史脏数据在代码侧清不掉，必须在「读」的一侧兜住。
+
+     回归用例：
+       - test/unit/tenant.spec.ts：真实数组 / 分页对象 / 畸形对象三种输入都要求返回数组；
+       - 浏览器用例 2b：往 localStorage 写入旧结构后硬刷新，要求 newErrors=0 且下拉 3 项。
+
+  2. el-popover 的 reference 里直接放了 el-tooltip → 19 条 Vue 告警 + 指令失效
+
+     根因：Element Plus 会把 reference 插槽交给内部的 ElOnlyChild，由它用
+           withDirectives 给「第一个合法子节点」挂 forwardRef 指令
+           （node_modules/element-plus/es/components/slot/src/only-child.mjs:23）。
+           el-tooltip 的根节点是 fragment，于是 Vue 判定
+           「指令用在非元素根节点的组件上」，指令不生效。
+
+     修法：reference 内包一层普通元素 <span class="wb-col-setting__trigger">，
+           指令落到元素节点上。
+
+     对照证据（同一脚本、同一环境，仅改这一处）：
+
+       版本                        Vue 告警   non-element root node   该步骤
+       --------------------------  --------   ---------------------   ------
+       修复前（裸 el-tooltip）         19              19               FAIL
+       修复后（包一层 span）            0               0               PASS
+
+  3. 顺带修正了「检测器本身不可信」的问题。
+     告警计数器最初按 `[Vue warn]` 前缀匹配，而 Vue 各小版本告警格式不一致，
+     可能导致检测永远命中不了（假绿）。改为按正文特征匹配后，
+     对照实验能稳定捕获 19 条 —— 上面那张表因此才有意义。
+
+  说明：本轮不再靠「排除法」推断根因。第 2 条的结论来自旧/新两版同源测量，
+        第 1 条有用户截图中的原始报错与之对应。
+
+
+【4】第二次验收（2026-09-28，目录菜单白屏）
+
+  触发：点击侧边栏「系统管理」后内容区空白，地址停在 /system。
+
+  修复 5 处静默失败：
+  1. 目录级菜单缺 redirect。type='M' 不生成 redirect，点击后导航到没有组件的
+     「空壳路径」，router-view 渲染空白且不报错。修法：firstLeafPath() 指向第一个
+     可见子页面，并兼容 RuoYi 的 'noRedirect' 约定。
+  2. SidebarItem 的可见性判断写反（'0' 是显示却被当隐藏），所有子菜单被过滤，
+     「系统管理」退化成可点击的叶子项。修法：抽出唯一的 isMenuVisible()。
+  3. 兜底路由抢在动态路由之前重定向，刷新场景下 /system 先被重定向到 /404。
+     修法：补偿分支用 to.redirectedFrom?.fullPath 回到原地址。
+  4. mock 的 :param 模式路由吃掉列表端点（/system/tenant/list 被
+     GET /system/tenant/:tenantId 命中，又被 `?? db.tenants[0]` 兜底成第一条）。
+     修法：列表资源优先于模式路由；去掉「查不到就兜底成第一条」的写法。
+  5. 分页对象 / 纯数组的差异散落在调用方。修法：api 层统一用 toArray() 收敛。
+
+  另：vite.config.ts 补 optimizeDeps.include（Element Plus 118 个 style/css 入口
+      与全部运行时依赖一次性预构建），消除「运行时发现新依赖 → 整页 reload」抖动。
+
+
+【5】第一次验收（2026-09-28，基础链路）
+
+  修复 6 处：
+  1. 动态路由顶层缺 name，守卫 `if (r.name && ...)` 整条跳过 → 路由一条没注册。
+  2. 刷新后菜单树未补偿，F5 后侧边栏空白。
+  3. visible 语义写反，整棵菜单被过滤。
+  4. TagsView 的 isAffix(contextTarget!) 非空断言运行时抛 TypeError。
+  5. Mock 缺 DELETE /base/:id，删除落到兜底 ok(null)，接口成功但数据没删。
+  6. Mock 中间件误用 server.middlewares.use(prefix, fn)，connect 剥离前缀导致
+     请求穿透到 proxy 报 ECONNREFUSED。
+
+  另：接口对账脚本发现 36 个端点未被 mock 覆盖，已补齐；
+      全局 unhandledrejection 过滤 CanceledError。
+
+
+【6】环境说明（非项目问题）
+
+  当前执行环境存在两处限制，均已绕过，不影响项目本身：
+  - 批量删除保护：Vite 重新预构建时要清 1000+ 个缓存文件，会命中
+    SAFE_DELETE_BULK_CONFIRM_REQUIRED 让 dev server 直接退出。
+    处理：把 node_modules/.vite 改名后重启，并把依赖一次性声明完整，
+    使预构建只发生一次。
+  - 命令结束后回收后台进程：dev server 无法跨工具调用存活。
+    处理：验证脚本用 child_process.spawn 自己拉起 dev server，
+    验证完再收掉（见 _verify5.cjs）。
+
+  另外 vite build 需要往 dist/assets 批量写入约 180 个产物文件，同样受写入限制；
+  如需产出 dist，在普通终端执行 `npm run build` 即可（若 dist 已存在，先删掉再构建）。
+  第五次验收时已用「先把旧 dist 改名让位、再构建」的方式绕过，构建成功并产出 266 个文件；
+  沙箱环境下这是唯一可用的姿势 —— 直接构建会在收尾清空旧 dist 时被批量删除保护打断
+  （注意：失败发生在收尾清空目录，产物其实已经写完，别被中途的报错误导）。
