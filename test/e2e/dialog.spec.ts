@@ -106,6 +106,10 @@ test.describe('对话框表单：不出现横向滚动条', () => {
   })
 
   test('九个表单对话框都没有横向溢出，也没有控件被裁', async ({ page }) => {
+    // 本用例要顺序跑 9 个页面：固定等待就有 9 × (900 + 1100 + 400) = 21.6s，
+    // 再加 9 次导航，CI runner 上会超过全局 30s 预算（实测 30.2s 超时）。
+    // 这是测试预算问题，不是产品缺陷 —— 单独放宽，不动全局值。
+    test.setTimeout(90_000)
     for (const path of DIALOG_PAGES) {
       expect(await openDialog(page, path), `${path} 应能打开新增对话框`).toBe(true)
       const m = await dialogMetrics(page)
