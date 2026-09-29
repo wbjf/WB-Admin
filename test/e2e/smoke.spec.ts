@@ -75,8 +75,10 @@ test.describe('WB-Admin 主链路', () => {
           userName: 'admin',
           nickName: '超级管理员',
           roles: [{ roleId: 2, roleKey: 'common', roleName: '普通角色' }],
-          // 关键：这是「新增 demo:dialog:list 之前」那次登录拿到的权限列表
-          permissions: ['system:user:list', 'demo:crud:list'],
+          // 关键：这是「新增 demo:dialog:list 之前」那次登录拿到的权限列表。
+          // 末尾那个假权限点是「探针」：它只可能来自这份旧快照，后端永远不会下发。
+          // 加载完还在 → 说明权限数组根本没被后端的新清单覆盖（即修复失效）。
+          permissions: ['system:user:list', 'demo:crud:list', '__stale_probe__'],
           currentRole: 'common',
           isSuperAdmin: false
         })
@@ -89,8 +91,19 @@ test.describe('WB-Admin 主链路', () => {
     await expect(page).not.toHaveURL(/\/403/)
     // 会重定向到 403 时这里必然超时失败，所以这一条就能锁住行为
     await expect(page.locator('.wb-demo-dialog')).toBeVisible({ timeout: 15000 })
-    // 断言机制本身：必须真的重新拉过用户信息。少了这条，把守卫改回
-    // `!userStore.userId` 时用例仍可能「碰巧通过」（旧快照恰好含该权限），就失去判别力了。
+
+    // 断言「真的重新拉过用户信息」。这里刻意不走「数请求次数」：
+    // 开发环境的 mock 是 Vite dev server 中间件（会真的发请求），
+    // 而 Pages 线上是浏览器内的 axios adapter（**一个请求都不发**），
+    // 数请求在两种环境下的答案不同。改断言**可观测的结果**，两边都成立。
+    const perms = await page.evaluate(() => {
+      const raw = localStorage.getItem('wb-admin-user')
+      return raw ? ((JSON.parse(raw).permissions || []) as string[]) : []
+    })
+    expect(perms).not.toContain('__stale_probe__')
+    expect(perms).toContain('demo:dialog:list')
+
+    // 上面那条是主断言；这条只在开发环境有意义，作为额外线索保留
     expect(infoCalls.length).toBeGreaterThan(0)
   })
 })
