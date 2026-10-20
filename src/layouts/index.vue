@@ -10,9 +10,12 @@ import LayoutFooter from './components/Footer.vue'
 import SettingsPanel from './components/Settings/index.vue'
 import SearchMenu from './components/SearchMenu.vue'
 import LockScreen from './components/LockScreen.vue'
+import AiChat from '@/components/AiChat/index.vue'
+import { useAiChat } from '@/components/AiChat/useAiChat'
 
 const settings = useSettingsStore()
 const appStore = useAppStore()
+const aiChat = useAiChat()
 
 const drawerVisible = ref(false)
 const searchVisible = ref(false)
@@ -48,6 +51,13 @@ function onKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
     e.preventDefault()
     appStore.lockScreen()
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
+    // 在输入框里按 Ctrl+I 是「斜体」的地盘，别抢
+    const el = e.target as HTMLElement | null
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+    e.preventDefault()
+    aiChat.toggle()
   }
 }
 
@@ -85,6 +95,8 @@ defineExpose({ openSearch: () => (searchVisible.value = true) })
 
     <SettingsPanel v-model="drawerVisible" />
     <SearchMenu v-model="searchVisible" />
+    <!-- 全局只挂一次：顶栏图标、快捷键、页面内任何地方触发，操作的都是同一个会话 -->
+    <AiChat />
     <LockScreen />
   </div>
 </template>

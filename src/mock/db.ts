@@ -21,7 +21,9 @@ export const db = {
   jobLogs: [] as any[],
   files: [] as any[],
   genTables: [] as any[],
-  demos: [] as any[]
+  demos: [] as any[],
+  /** 区域 → 设备 的两级树（mock 直接用嵌套结构，不再让前端 buildTree） */
+  deviceAreas: [] as any[]
 }
 
 function id(i: number = 0, prefix = ''): string {
@@ -213,6 +215,82 @@ export function seed(): void {
     remark: Random.sentence(6, 14),
     createTime: Random.datetime('yyyy-MM-dd HH:mm:ss')
   }))
+
+  db.deviceAreas = buildDeviceAreas()
+}
+
+/**
+ * 区域 → 设备的两级 mock 数据。
+ *
+ * 设备顺序是**故意写乱**的：只有当原始顺序本身乱首字覆盖 A~Z，
+ * 才能在页面上肉眼确认「排序真的生效了」——
+ * 若 mock 数据本来就有序，全绿的结果既可能是排序生效，也可能只是数据凑巧。
+ */
+function buildDeviceAreas(): any[] {
+  const statuses = ['available', 'unavailable', 'offline'] as const
+  /**
+   * 设备名故意写成「字母+数字」为主（A1 / B10），并混进：
+   * - 数字开头的（1号行车、10号机）——验证 0-9 自然序，且排在字母之前
+   * - 中文名的（中央空调机组）——验证「其它」档垫底 + 拼音兜底
+   * 顺序是乱的，排序效果由前端跑出来，不要在这里排好。
+   */
+  const seedAreas: Array<{ name: string; code: string; devices: string[] }> = [
+    {
+      name: '一号生产车间',
+      code: 'WS-01',
+      devices: [
+        'A9',
+        'A1',
+        'A6',
+        'A3',
+        'A10',
+        'A2',
+        'A4',
+        'B2',
+        'B10',
+        'B1',
+        'C1',
+        '10号机',
+        '2号线',
+        '1号行车'
+      ]
+    },
+    {
+      name: '二号装配车间',
+      code: 'WS-02',
+      devices: ['D2', 'D1', 'D12', 'E5', 'E1', 'F3', 'F10', 'AGV-01', '11号叉车', '3号压铸机']
+    },
+    {
+      name: '研发办公楼',
+      code: 'OF-01',
+      devices: ['G1', 'G7', 'H2', 'H12', 'I3', '4号电梯', '中央空调机组', '排风机组']
+    },
+    {
+      name: '室外场区',
+      code: 'OUT-01',
+      devices: ['J1', 'J2', 'K5', 'K15', '5号水泵', '6号冷却塔']
+    },
+    {
+      name: '三号原料仓',
+      code: 'WH-03',
+      devices: ['L3', 'L1', 'M2', 'N8', '7号货架', '12号地磅']
+    }
+  ]
+
+  return seedAreas.map((area, ai) => ({
+    id: `AR${ai + 1}`,
+    code: area.code,
+    name: area.name,
+    children: area.devices.map((name, di) => ({
+      id: `AR${ai + 1}-${String(di + 1).padStart(3, '0')}`,
+      areaId: `AR${ai + 1}`,
+      name,
+      // 按序轮换而非随机：每次刷新结果一致，便于排查问题与写 e2e 断言
+      status: statuses[(ai + di) % statuses.length],
+      category: name.replace(/\s*-\d+$/, '').slice(0, 4),
+      updateTime: Random.datetime('yyyy-MM-dd HH:mm:ss')
+    }))
+  }))
 }
 
 function dict(type: string, items: [string, string, string?][]): any[] {
@@ -266,7 +344,19 @@ export function buildMenus(): any[] {
       id: '4', parentId: '0', name: 'Demo', title: '示例演示', icon: 'Present', type: 'M',
       path: '/demo', component: 'Layout', visible: '0', sort: 4, children: [
         { id: '41', parentId: '4', name: 'CrudDemo', title: 'CRUD 示例', icon: 'EditPen', type: 'C', path: 'crud', component: 'demo/crud/index', perms: 'demo:crud:list', visible: '0' },
-        { id: '42', parentId: '4', name: 'DialogDemo', title: '弹窗能力', icon: 'FullScreen', type: 'C', path: 'dialog', component: 'demo/dialog/index', perms: 'demo:dialog:list', visible: '0' }
+        { id: '42', parentId: '4', name: 'DialogDemo', title: '弹窗能力', icon: 'FullScreen', type: 'C', path: 'dialog', component: 'demo/dialog/index', perms: 'demo:dialog:list', visible: '0' },
+        {
+          id: '43',
+          parentId: '4',
+          name: 'DeviceDemo',
+          title: '设备树',
+          icon: 'Cpu',
+          type: 'C',
+          path: 'device',
+          component: 'demo/device/index',
+          perms: 'demo:device:list',
+          visible: '0'
+        }
       ]
     }
   ]

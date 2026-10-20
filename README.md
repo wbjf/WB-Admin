@@ -109,9 +109,47 @@ npm run dev          # http://localhost:3000
 | `ImageCropper` | 头像裁剪（旋转 / 缩放 / 重置） |
 | `WangEditor` / `MarkdownEditor` | 富文本与 Markdown |
 | `DeptSelect` | 部门树选择器 |
+| `DeviceTree` | 区域-设备两级树：拼音首字母排序（数字 → A-Z → 其它，自然序 `A2 < A10`）+ **偏好收藏置顶**，收藏按登录人隔离、暂存本地，可换后端适配器 |
+| `AiChat` | 全局 AI 对话面板：顶栏图标 / `Ctrl+I` 唤起，**多会话 + 分组管理**，流式回复、附件随消息发送、模型切换、历史按登录人持久化。默认走**纯前端模拟**（静态部署可用），换一行即可接真实后端 |
+
+### 设备树与偏好
+
+`src/components/DeviceTree/`：两级树（区域 → 设备），排序与收藏都在这一层收敛，页面只负责给数据。演示页 `/demo/device`。
+
+```vue
+<DeviceTree :areas="areas" :loading="loading" @device-click="onDeviceClick" />
+```
+
+- **排序规则**（`src/utils/device-sort.ts`）：收藏 → 数字开头（`1 < 2 < 10`）→ 字母开头（`A2 < A10`）→ 其它（中文按拼音首字母）。父节点（区域）用同一个比较器按首字母 A-Z。
+- **偏好**（`src/composables/useDevicePreference.ts`）：`toggle(id)` 收藏后该项在**所属区域内**自动置顶 + 星标高亮，取消后由比较器自然归位，没有任何「手动排序」动作。key 为 `wb-admin:device-favorite:{userId}`，未登录落 `guest`；300ms 防抖落盘，`localStorage` 异常只影响持久化、不影响继续用。
+- **换后端存储**：`configureDevicePreference({ adapter })`，适配器只需 `load` / `save` 两个方法。
+- **展开态自己托管**：`treeData` 是 `computed`，收藏一改就换引用，`el-tree` 的 `setData` 引用比较会整树重建并丢掉 `expanded`。组件用 `:default-expanded-keys` + `@node-expand` / `@node-collapse` 维护，折叠才不会被「点一下收藏」重置。
+- 完整说明见 [docs/components/device-tree.md](docs/components/device-tree.md)。
+
+### AI 对话面板
+
+顶栏 ✨ 图标或 `Ctrl+I` 唤起（焦点在输入框内不拦截，避免抢「斜体」快捷键）。左下角添加文件、右下角选模型 + 发送；`Enter` 发送、`Shift + Enter` 换行，生成中可停止，支持全屏与清空会话。输入区上沿有一条拖动条：上下拖动调整输入框高度（键盘 ↑/↓ 也能调，双击复位成「跟随内容自动增高」）。
+
+- **状态**：`src/components/AiChat/useAiChat.ts` 是模块级单例 —— 顶栏按钮、快捷键、弹窗操作的是同一份会话，与 `useDevicePreference` 同一套路（这是 UI 状态，不值得进 store）。
+- **传输层可替换**：`src/components/AiChat/transport.ts`。默认 `createMockTransport()` **完全跑在浏览器里、一个请求都不发**，所以静态托管也能演示（mock 中间件只在 dev server 存在，见「部署」一节）。
+- **接真实后端**：换一行即可，界面不用改。
+
+```ts
+import { configureAiTransport, createHttpTransport } from '@/composables'
+
+configureAiTransport(createHttpTransport({ baseURL: '/api' }))
+```
+
+接口约定：`GET /ai/models` 返回 `AiModel[]`；`POST /ai/chat` 收 `multipart`（`model`、`messages`(JSON)、`files`），响应支持 `text/event-stream`（`data: {"choices":[{"delta":{"content":"…"}}]}`，`[DONE]` 结束）或普通 JSON（`{ data: { content } }`，自动降级为一次性输出）。请求头由 transport 自己拼（`Authorization` / `X-Tenant-Id` / `Accept-Language`），不经 axios 拦截器。
+
+> 完整指南（前端实现步骤、前后端对接的三种方式、后端接口契约与最小可用实现、SSE 与 Nginx 配置、编程式调用、踩坑清单）见 [docs/components/ai-chat.md](docs/components/ai-chat.md)。
+
+- **附件**：只在内存里随消息发送，最多 5 个、单文件 ≤ 10MB；历史里只保留名称与大小（`File` 不可序列化），刷新后仍能看到「当时发过什么」。
+- **会话与分组**：左侧会话栏可新建 / 切换 / 重命名 / 删除对话，并按分组归类（分组可折叠、改名、删除，删组不删对话）。标题取首条消息前 20 字，列表按最近使用排序；窄屏下会话栏为浮层且默认收起。生成中切到别的会话，回答仍写回原会话。
+- **历史**：`wb-admin:ai-chat:{userId}`，未登录落 `guest` 桶；存储结构 v2（`sessions` + `groups` + `activeId`），**v1 的单会话历史会自动迁移成一条会话**，不会因升级丢记录；切换登录人自动重载，不会看到上一个人的对话。
 
 ### Hooks
-`useCrud`（CRUD 全流程）、`useTable`（轻量列表）、`useDict`、`useDownload`、`usePermission`
+`useCrud`（CRUD 全流程）、`useTable`（轻量列表）、`useDict`、`useDownload`、`usePermission`、`useAiChat`（AI 会话）、`useDevicePreference`（设备偏好）、`useDeviceTree`（树排序编排）
 
 ### 系统页面
 - 用户 / 角色 / 菜单 / 部门 / 岗位 / 字典 / 参数 / 公告 / 租户管理
@@ -261,14 +299,15 @@ Nginx 关键配置已放在 `docker/nginx.conf`（SPA history 回退 + 静态资
 | 项目 | 结果 |
 | --- | --- |
 | `vue-tsc --noEmit` | 0 错误 |
-| `vitest run` | 27 / 27 通过（路由回归 7 例守住「目录菜单 → 路由」；租户 store 3 例守住「持久化脏数据」） |
+| `vitest run` | 100 / 100 通过（路由回归 7 例守住「目录菜单 → 路由」；租户 store 3 例守住「持久化脏数据」；设备树排序 26 例 + 偏好 15 例；**AI 会话 22 例**守住流式拼装、abort、附件限额、历史按人隔离与 HTTP 传输层解析，外加多会话/分组与 v1 迁移） |
 | `vite build` | 成功 |
 | `vitepress build docs` | 成功 |
-| `npm run test:e2e` | 15 / 15 通过（主链路 3 + 布局细节 3 + 内容区间距/滚动/撑满 6 + **对话框横向滚动条 3**） |
+| `npm run test:e2e` | 45 / 45 通过（冒烟 4 + 设备树 7 + **AI 对话 8** + 对话框 10 + 顶栏/布局/间距/动效 16） |
 | **对话框横向滚动条回归**（真实浏览器，10 个对话框 + 同源对照） | **55 / 55 通过**：9 个表单对话框内容横向溢出 **6px → 0**（`scrollWidth 614 → 608 = clientWidth`）· **真实滚轮横滚 `scrollLeft 6 → 0`** · 无控件被裁 · 纵向滚动能力保留 · **`tool/gen` 代码预览的横向滚动完好**（长代码行 `sw 922 / cw 868`，滚轮横滚到 `scrollLeft 54`）—— 守住"不拿 `overflow-x: hidden` 一刀切" |
 | **内容区间距 / 滚动条 / 撑满回归**（真实浏览器） | **74 / 74 通过**：8 个代表页四周留白 **32px → 12px** · 窗口与内容区 0 滚动条 · 模块底边贴内容区底边（差 ≤1px）· 表头固定 + 分页贴卡片底 + 表体内部滚动（用户页 10 行溢出 31px，实测在表体内部）· **矮窗口 1280×620 / 1024×520 下仍然只有表体滚动**（表体内部溢出 >0，窗口/内容区/页面容器均无滚动条）· 工作台图表跟随容器自适应（1000px 高 356px → 820px 高 176px） |
 | **布局细节回归**（真实浏览器，含同源对照） | **55 / 55 通过**：按钮组相对列左边框缩进 8px → **88px**（= 列内边距 + labelWidth，与输入框左对齐）· 行内按钮中心离散 **6px → 0** · 左卡片高度 **232px → 795px = 所在列高** · 覆盖 1/2/3/4 个查询条件的 5 个页面（按钮组均不折行、不越界）· 浅色/深色双主题 · 3 个条件的岗位管理页按钮行未发生跨行位移 |
 | **布局与配色回归**（真实浏览器，含同源对照） | **18 / 18 通过**：菜单 hover 在浅/深色下均不再出现纯黑底（浅色 `rgb(0,0,0)` 对比度 3.44 → `rgb(245,247,250)` 5.69；深色 → `rgb(38,39,39)` 9.99）· 菜单常态与激活项对比度达标 · **tags 垂直居中（中心偏差 -6px → -0.5px）** · 折叠态 64px 图标居中无溢出 · 顶部布局菜单高度不溢出导航栏 · 混合布局侧边栏二级菜单 + 顶部一级入口 |
+| **AI 对话面板**（真实浏览器） | **8 / 8 通过**：顶栏图标唤起弹窗 · 发送后收到流式回复（生成中按钮变「停止」）· 切换模型后消息 meta 显示 `qwen-max` · 附件随消息发出并在气泡内显示文件名、待发送区清空 · 刷新后历史仍在、可一键清空 · `Enter` 发送 / `Shift+Enter` 只换行 · 全屏铺满并复原 · 拖动输入区上沿调高度后双击复位 · 新建对话 / 建组 / 移动 / 折叠 / 刷新后分组与会话仍在 · 在分组内点新建仍落在未分组 · **输入法上屏那一下的回车不误发送**（CDP 真实 IME 时序） |
 | 真实浏览器全链路 | 11 / 11 通过：登录 → **注入历史脏持久化数据后刷新不崩** → 租户下拉 3 项 → 20 个业务页面内容区非空 → 侧边栏目录可展开 → 用户表格出 10 行数据 → 直接访问 `/system` 正确落到子页 → 未知路径落 404 → **全站 0 条 Vue 告警**；无 pageerror、无 console.error、无失败请求、0 次重新预构建 |
 
 浏览器验证覆盖的页面：用户 / 角色 / 菜单 / 部门 / 岗位 / 字典 / 参数 / 公告 / 租户 / 在线用户 / 操作日志 / 登录日志 / 服务监控 / 缓存监控 / 代码生成 / 定时任务 / 文件管理 / 个人中心。
@@ -337,6 +376,7 @@ Nginx 关键配置已放在 `docker/nginx.conf`（SPA history 回退 + 静态资
 26. **不要用 `padding` 给 `el-icon` 撑点击热区 —— 会从图标自身里"扣"，把图标横向压扁。** `el-icon` 的尺寸是 `width: 1em; height: 1em`，而 Element Plus 全局设了 `box-sizing: border-box`，所以 `font-size: 17px` 的图标再写 `padding: 5px`，**内容盒只剩 7×7**（padding 是往里扣的，不是往外撑）。里面的 `<svg>` 同样是 `1em`：主轴（水平）被 `flex-shrink` 压到 7px，副轴（垂直）因为 `align-items: center` 不参与收缩仍是 17px —— 实测渲染成 **7×17、横向压到 41%**，图标看起来"又细又小"，而且纵向还会溢出 5px 盖在 padding 区上。正解是**给固定方形尺寸再靠 flex 居中**（`width/height: 30px; padding: 0`），svg 自然按 1em 正常显示（实测 18×18）。同理：任何自身带 `1em` 尺寸 + 全局 border-box 的组件（EP 的 `el-icon`、部分 `el-tag` 内容）都不该用 padding 调尺寸。
 27. **工具条里的按钮间距别依赖 `.el-button + .el-button`。** EP 有一条 `.el-button + .el-button { margin-left: 12px }` 负责相邻按钮间距，但它只认**直接相邻的两个 el-button**。`.wb-toolbar__left/__right` 原本没有任何布局样式（计算值 `display: block`），组内按钮是 inline 排列、全靠这条规则给间距；而「列设置」的触发元素外面包了一层 `<span>`（`el-popover` 的 reference 要挂 forwardRef，见 `ColumnSetting.vue` 注释），不是 `el-button`，于是它左边距为 0 —— 实测右侧间距 `[12, 12, 12, 0]`，"设置按钮贴上一个按钮"。修法是把左右分组声明成 `display: flex; gap: var(--wb-gap)`（间距与子节点是什么标签无关），同时把 EP 那条相邻 margin 归零，否则 `gap 12 + margin 12` 会叠成 24。**排查这类"间距不一致"的通用手法：量出全部相邻间距的数组，看有几种取值** —— 只有 0 和 12 两种，就说明是"某个节点没吃到那条规则"，而不是 CSS 值写错。
     另外量顶栏图标间距时要注意：右侧一栏里夹着租户下拉、头像等非图标元素，**按"所有相邻图标"算间距会把隔着下拉框的那段距离（实测 146px）也算进来**，断言必然误报。要按直接子元素切成「连续图标段」再量段内间距（`test/e2e/navbar-toolbar.spec.ts` 就是这么写的）。
+28. **`<style scoped>` 管不到 `el-dialog` 的根元素 —— `class` 挂上去了，`data-v-*` 没挂上去。** el-dialog 的根是 `Teleport`，父组件的 scope id 不会传到由它渲染的节点，所以 `.wb-ai[data-v-x] ...` 这一族规则**全部静默失效**（不报错、不警告）：AI 面板当初写的 header/footer 内边距与分隔线一直没生效，实际吃的是 EP 默认值（`padding` 实测 `0 0 16px` / `16px 0 0`、`border` 为 0）。全屏留白也踩在同一个坑上：`.wb-ai.is-fullscreen { display: flex }` 编译成 `.wb-ai.is-fullscreen[data-v-x]`，属性对不上 → 弹窗仍是普通块，对话区固定 58vh，footer 之下空出 **449px**；而 `.wb-ai.is-fullscreen .wb-ai__body[data-v-x]` 因为 scope id 只加在**最后一个复合选择器**上，反而能命中 —— 同一条规则里一半生效一半不生效，最容易看走眼。修法：这类"dialog 自己"的规则一律写 `:global()`（`<style scoped>` 里可用），且**不能嵌在 `.wb-ai { }` 里**，否则会被拼成 `.wb-ai[data-v-x] .wb-ai.is-fullscreen`。判据：`el.matches('.wb-ai[data-v-x]')` 为 false 就说明整段失效，别靠肉眼猜。
 28. **EP 的 `.el-upload-list` 带固定的 `margin: 10px 0 0`，列表为空时这段间距照样占位 —— 会让同一行里的按钮高低不齐。**
     EP 在 dist 里给它写死了 `margin: 10px 0 0`（不是主题变量、也没有 `v-if` 兜底），而 `el-upload` 无论有没有文件都会渲染这个 `<ul>`。
     于是 `ProUpload` 的外层 `.wb-upload` 被撑成「触发按钮 32 + 空列表 10 = **42px**」。
@@ -434,6 +474,36 @@ Nginx 关键配置已放在 `docker/nginx.conf`（SPA history 回退 + 静态资
     同类要提防的还有任何「用缓存值判断缓存是否有效」的写法。
     回归用例见 `test/e2e/smoke.spec.ts` 的「持久化里的旧权限快照不会把新菜单挡在 403」
     （除了断言页面能打开，还断言 `getInfo` 真的被请求过 —— 少了这条，改回旧写法时用例可能碰巧通过）。
+
+35. **`el-input` 的 `$attrs` 落在内层 `<textarea>` 上，不是根 div。**
+    给 `el-input` 写 `data-test="ai-input"` 后，`[data-test="ai-input"] textarea` **永远匹配不到**
+    （带这个属性的是 textarea 自己，它里面没有 textarea）。AI 面板的 e2e 因此连吃 4 个 30s 超时，
+    页面截图看起来完全正常、报错只说「waiting for locator」。选择器直接写 `textarea` 或
+    `textarea[data-test=...]`。（顺带说明 `@keydown` 也是绑在 textarea 上的，这点正好是我们要的。）
+36. **默认传输层不能依赖 dev server 的 mock 中间件。**
+    `vite.config.ts` 里的 mock 只在 `configureServer` 挂载，静态产物里根本不存在 ——
+    AI 面板如果默认走 `/ai/chat`，打包部署后点发送就是 404，而首页照样 200，看起来像「部署成功」。
+    所以默认 `createMockTransport()` 完全跑在浏览器里、零请求；真实接口封装在 `createHttpTransport()` 里按需启用。
+37. **模型列表是异步拉的，`send()` 不能假设 `modelId` 已有值。**
+    用户在列表回来之前就点发送（接口慢或失败时永远回不来），请求里的 `model` 会是空字符串 → 后端 400。
+    现在 `useAiChat()` 先填一个内置默认模型占位，`send()` 里再兜一层 `modelId || models[0]?.id`。
+    这条是单测抓出来的（`expected '' to be 'gpt-4o'`）—— 界面上完全看不出来，因为消息照样显示"生成中"。
+38. **`e.isComposing` 拦不住「上屏那一下的回车」。**
+    输入法上屏时的事件顺序各浏览器不同：Safari 与部分第三方输入法是
+    `compositionend` → `keydown(Enter, isComposing=false)`，于是「按回车确认候选词」被当成发送，
+    用户感受是**打两个字就自动发送**。判断必须四条一起：`composing` 标记（自己监听 composition 生命周期）、
+    `isComposing`、`keyCode === 229`、以及**上屏后约 100ms 的时间窗**（只吞紧跟的那一次，
+    否则「上屏完立刻回车发送」要按两次）。`keyCode 229` 只能补一部分输入法，时间窗不可省。
+    更要紧的是**这个 bug 用合成的 `KeyboardEvent` 测不出来**（`isComposing` 由浏览器在真实组合状态下填充），
+    必须用 CDP 制造真实时序：`Input.imeSetComposition` → `Input.insertText`（上屏）→ `Input.dispatchKeyEvent`。
+    回归用例见 `test/e2e/ai-chat.spec.ts` 的「输入法上屏那一下的回车不发送」。
+39. **结构类操作不能和流式增量共用防抖落盘。**
+    移动分组 / 建组 / 折叠原来都走 300ms 防抖，用户「挪完分组马上刷新」就丢，表现是**组里空掉、会话自己跑回未分组**；
+    更麻烦的是下一次操作会把错误状态覆盖回存储，事后查不出来。低频结构操作一律 `persistNow()`，
+    再挂 `pagehide` / `beforeunload` / `visibilitychange(hidden)` 兜住防抖中残留的那次写。
+    另外这条 bug 一开始没被 e2e 抓到，是因为断言写的是「列表第一条 = 某个会话」——
+    侧栏是「未分组桶固定在最前」，会话的 `groupId` 丢失后正好掉进未分组、又因为 `updatedAt` 最新排第一，
+    **断言反而通过了**。按桶断言（先 `.wb-ai__group` 筛选再取会话）才抓得住。
 
 ---
 

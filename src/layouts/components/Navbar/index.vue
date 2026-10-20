@@ -10,6 +10,7 @@ import {
   FullScreen,
   Grid,
   Lock,
+  MagicStick,
   Refresh,
   Search,
   Setting
@@ -20,6 +21,7 @@ import { useAppStore } from '@/stores/modules/app'
 import { useTenantStore } from '@/stores/modules/tenant'
 import { useI18n } from 'vue-i18n'
 import { getCurrentLocale, setLocale, type LocaleKey } from '@/locales'
+import { useAiChat } from '@/components/AiChat/useAiChat'
 import Breadcrumb from '../Breadcrumb.vue'
 import TopMenu from '../TopMenu.vue'
 
@@ -33,6 +35,7 @@ const settings = useSettingsStore()
 const userStore = useUserStore()
 const appStore = useAppStore()
 const tenantStore = useTenantStore()
+const aiChat = useAiChat()
 
 /**
  * 租户下拉选项。
@@ -112,6 +115,12 @@ if (tenantStore.enabled) {
     </div>
 
     <div class="wb-navbar__right">
+      <el-tooltip :content="t('ai.title')" placement="bottom">
+        <el-icon class="wb-icon-btn wb-ai-entry" data-test="ai-entry" @click="aiChat.open()">
+          <MagicStick />
+        </el-icon>
+      </el-tooltip>
+
       <el-tooltip :content="t('common.search')" placement="bottom">
         <el-icon class="wb-icon-btn" @click="emit('openSearch')"><Search /></el-icon>
       </el-tooltip>
@@ -254,6 +263,18 @@ if (tenantStore.enabled) {
 
   &:hover {
     background: var(--el-fill-color-light);
+  }
+}
+
+/**
+ * AI 入口。只改颜色、不动尺寸 —— 顶栏所有 .wb-icon-btn 共享同一套
+ * 30×30 热区与 18px 字号，navbar-toolbar.spec.ts 会逐个量 svg 是否被压扁。
+ */
+.wb-ai-entry {
+  color: var(--el-color-primary);
+
+  &:hover {
+    background: color-mix(in srgb, var(--el-color-primary) 12%, transparent);
   }
 }
 

@@ -80,7 +80,8 @@ export default defineConfig({
             { text: 'ProForm 表单', link: '/components/pro-form' },
             { text: 'SearchForm 查询区', link: '/components/search-form' },
             { text: 'ProDialog 弹窗', link: '/components/pro-dialog' },
-            { text: 'ProUpload 上传', link: '/components/pro-upload' }
+            { text: 'ProUpload 上传', link: '/components/pro-upload' },
+            { text: 'DeviceTree 设备树', link: '/components/device-tree' }
           ]
         },
         {
@@ -91,7 +92,8 @@ export default defineConfig({
             { text: 'EChart 图表', link: '/components/echart' },
             { text: 'ImageCropper 图片裁剪', link: '/components/image-cropper' },
             { text: 'DeptSelect 部门选择', link: '/components/dept-select' },
-            { text: 'Editor 富文本编辑器', link: '/components/editor' }
+            { text: 'Editor 富文本编辑器', link: '/components/editor' },
+            { text: 'AiChat AI 对话面板', link: '/components/ai-chat' }
           ]
         },
         {

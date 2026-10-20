@@ -7,8 +7,10 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AiChat: typeof import('./../src/components/AiChat/index.vue')['default']
     ColumnSetting: typeof import('./../src/components/ProTable/ColumnSetting.vue')['default']
     DeptSelect: typeof import('./../src/components/DeptSelect/index.vue')['default']
+    DeviceTree: typeof import('./../src/components/DeviceTree/index.vue')['default']
     DictSelect: typeof import('./../src/components/Dict/DictSelect.vue')['default']
     DictTag: typeof import('./../src/components/Dict/DictTag.vue')['default']
     EChart: typeof import('./../src/components/EChart/index.vue')['default']
@@ -65,6 +67,7 @@ declare module 'vue' {
     ElTag: typeof import('element-plus/es')['ElTag']
     ElTimePicker: typeof import('element-plus/es')['ElTimePicker']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
+    ElTree: typeof import('element-plus/es')['ElTree']
     ElTreeSelect: typeof import('element-plus/es')['ElTreeSelect']
     ElUpload: typeof import('element-plus/es')['ElUpload']
     IconSelect: typeof import('./../src/components/IconSelect/index.vue')['default']
