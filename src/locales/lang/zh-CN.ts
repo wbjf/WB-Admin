@@ -628,6 +628,24 @@ export default {
     saveAndLeave: '保存并离开',
     leaveDirectly: '直接离开',
     unknownTypes: '{n} 个节点类型不在当前元件库中（以默认样式显示）',
-    opFailed: '操作失败'
+    opFailed: '操作失败',
+    // 列表页
+    listTitle: '流程图',
+    createTitle: '新建流程图',
+    descPlaceholder: '一句话说明这张图（可选）',
+    catProcess: '工艺流程',
+    catLayout: '布局图',
+    catGeneric: '通用流程',
+    statusDraft: '草稿',
+    statusReview: '审核中',
+    statusPublished: '已发布',
+    nodeCount: '节点',
+    edgeCount: '连线',
+    nodeEdge: '节点/连线',
+    updatedAt: '更新时间',
+    openEditor: '编辑',
+    batchDelete: '删除选中',
+    importJson: '导入 JSON',
+    importJsonTip: '选择编辑器导出的 .json 文件'
   }
 }

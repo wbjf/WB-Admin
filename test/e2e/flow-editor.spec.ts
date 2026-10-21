@@ -55,6 +55,37 @@ test.describe('FlowEditor', () => {
     expect(after).toBe(before + 1)
   })
 
+  test('列表页：按名称筛选、重置、新建后直接进编辑器', async ({ page }) => {
+    await login(page)
+    await page.goto('/flow/index')
+    await page.waitForSelector('.wb-pro-table .fl-name__text:visible', { timeout: 20000 })
+    await page.waitForTimeout(500)
+
+    // 筛选条件必须真的发给接口（传空串等于没筛，会静默返回全部）
+    await page.locator('.wb-search-form input').first().fill('BEOL')
+    await page.getByRole('button', { name: /搜\s*索/ }).click()
+    await page.waitForTimeout(1000)
+    const filtered = await page.locator('.wb-pro-table .fl-name__text:visible').allTextContents()
+    expect(filtered.length).toBeGreaterThan(0)
+    expect(filtered.every((n) => n.includes('BEOL'))).toBe(true)
+
+    await page.getByRole('button', { name: /重\s*置/ }).click()
+    await page.waitForTimeout(1000)
+    expect(await page.locator('.wb-pro-table .fl-name__text:visible').count()).toBeGreaterThan(
+      filtered.length
+    )
+
+    // 新建要能拿到 id 并跳转，否则「建完进不去画」
+    const NAME = `e2e 新建-${Date.now()}`
+    await page.getByRole('button', { name: /新\s*增/ }).click()
+    const dlg = page.locator('.el-dialog:visible').last()
+    await dlg.locator('input').first().fill(NAME)
+    await dlg.getByRole('button', { name: /确\s*定/ }).click()
+    await page.waitForURL(/\/flow\/editor\//, { timeout: 15000 })
+    await page.waitForSelector('.wb-flow-canvas svg', { timeout: 30000 })
+    await expect(page.locator('.wb-flow-toolbar .fname input')).toHaveValue(NAME)
+  })
+
   test('改名后切走再回来仍在（草稿恢复 + 状态栏提示）', async ({ page }) => {
     await login(page)
     await openEditor(page)
@@ -156,5 +187,57 @@ test.describe('FlowEditor', () => {
       page.locator('.el-dropdown-menu__item', { hasText: '.flow.json' }).click()
     ])
     expect(download.suggestedFilename()).toMatch(/\.flow$/)
+  })
+
+  /**
+   * 回归：线上反馈「全屏后弹窗显示不出来」。
+   * 根因是原生全屏只渲染全屏元素的子树，而弹窗 teleport 在 body 上。
+   * 断言不看 DOM 是否存在（全屏时它照样有尺寸），而是看它是否在
+   * fullscreenElement 子树内 —— 在树外就是用户看不到。
+   */
+  test('全屏下弹窗 / 消息仍在可见的渲染树内', async ({ page }) => {
+    await login(page)
+    await openEditor(page)
+
+    await page.locator('[data-test=tb-fullscreen]').click()
+    await page.waitForTimeout(800)
+    const fs = await page.evaluate(() => ({
+      isHtml: document.fullscreenElement === document.documentElement,
+      tag: document.fullscreenElement?.tagName || null
+    }))
+    expect(fs.isHtml, `fullscreenElement=${fs.tag}`).toBe(true)
+
+    // 编辑器铺满视口
+    const box = await page.locator('.wb-flow').boundingBox()
+    const vw = await page.evaluate(() => window.innerWidth)
+    expect(Math.round(box!.width)).toBe(vw)
+    expect(Math.round(box!.y)).toBe(0)
+
+    // 弹窗必须在全屏元素之内
+    await page.locator('[data-test=tb-version]').click()
+    await page.waitForTimeout(800)
+    const dlg = await page.evaluate(() => {
+      const el = [...document.querySelectorAll('.el-dialog')].find(
+        (d) => d.getClientRects().length > 0
+      )
+      if (!el) return { found: false, inside: false }
+      return { found: true, inside: !!document.fullscreenElement?.contains(el) }
+    })
+    expect(dlg.found).toBe(true)
+    expect(dlg.inside).toBe(true)
+
+    // 关闭后退出全屏，编辑器恢复常规布局
+    // （Escape 是浏览器级行为，Playwright 的按键不一定触发，用按钮退出最稳）
+    await page.locator('.el-dialog__headerbtn:visible').first().click()
+    await page.waitForTimeout(400)
+    await page.locator('[data-test=tb-fullscreen]').click()
+    await page.waitForFunction(() => !document.fullscreenElement, undefined, { timeout: 5000 })
+    await page.waitForTimeout(400)
+    const after = await page.evaluate(() => ({
+      fs: !!document.fullscreenElement,
+      pos: getComputedStyle(document.querySelector('.wb-flow')!).position
+    }))
+    expect(after.fs).toBe(false)
+    expect(after.pos).not.toBe('fixed')
   })
 })

@@ -225,6 +225,22 @@ export function seed(): void {
 
   // 流程图：第一条给完整的 FEOL 示例，其余为占位
   const sample = sampleFeolGraph('F1')
+  /** 占位数据也要有「人话」：随机英文句子放在列表里像乱码，搜索筛选也演不出来 */
+  const FLOW_SEEDS: Array<{
+    name: string
+    category: 'process' | 'layout' | 'generic'
+    desc: string
+  }> = [
+    { name: 'BEOL 金属互连', category: 'process', desc: '金属层沉积与刻蚀，含两层互连' },
+    { name: '封装测试流', category: 'process', desc: '封装段测试与分选，含报废分支' },
+    { name: '设备布局图', category: 'layout', desc: '产线设备摆放示意，按区域分组' },
+    { name: '清洗工序流', category: 'process', desc: '去胶 - 清洗 - 烘干标准三段' },
+    { name: 'CMP 抛光流程', category: 'process', desc: '平坦化与终点检测，含 CMP 返工' },
+    { name: '光刻返工判定', category: 'generic', desc: '曝光异常判定与返工路径' },
+    { name: '薄膜沉积流', category: 'process', desc: 'PVD / CVD 沉积工序，含腔体切换' },
+    { name: '量测抽样流程', category: 'generic', desc: '关键尺寸抽检与数据回传' }
+  ]
+  const FLOW_STATUS = ['published', 'draft', 'published', 'review'] as const
   db.flows = [
     {
       id: 'F1',
@@ -236,22 +252,28 @@ export function seed(): void {
       status: 'published',
       graph: sample
     },
-    ...Array.from({ length: 7 }).map((_, i) => ({
-      id: `F${i + 2}`,
-      name: `${Random.pick(['BEOL 金属互连', '封装测试流', '设备布局图', '清洗工序流'])}-${i + 2}`,
-      category: Random.pick(['process', 'layout', 'generic']),
-      description: Random.sentence(5, 10),
-      updatedAt: Date.now() - i * 3600_000,
-      version: 1,
-      status: i % 3 === 0 ? 'draft' : 'published',
-      graph: {
-        schema: 1,
-        meta: { id: `F${i + 2}`, name: `流程 ${i + 2}`, updatedAt: Date.now() },
-        nodes: [],
-        edges: [],
-        groups: []
+    ...Array.from({ length: 25 }).map((_, i) => {
+      const seed = FLOW_SEEDS[i % FLOW_SEEDS.length]
+      const id = `F${i + 2}`
+      const name = `${seed.name}-${i + 2}`
+      const updatedAt = Date.now() - (i + 1) * 3600_000
+      return {
+        id,
+        name,
+        category: seed.category,
+        description: seed.desc,
+        updatedAt,
+        version: (i % 3) + 1,
+        status: FLOW_STATUS[i % FLOW_STATUS.length],
+        graph: {
+          schema: 1,
+          meta: { id, name, category: seed.category, updatedAt },
+          nodes: [],
+          edges: [],
+          groups: []
+        }
       }
-    }))
+    })
   ]
 
   db.flowVersions = [

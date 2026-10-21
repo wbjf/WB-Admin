@@ -628,6 +628,24 @@ export default {
     saveAndLeave: 'Save and leave',
     leaveDirectly: 'Leave',
     unknownTypes: '{n} node type(s) missing from the current palette (shown with default style)',
-    opFailed: 'Operation failed'
+    opFailed: 'Operation failed',
+    // list page
+    listTitle: 'Flows',
+    createTitle: 'New flow',
+    descPlaceholder: 'One-line description (optional)',
+    catProcess: 'Process',
+    catLayout: 'Layout',
+    catGeneric: 'Generic',
+    statusDraft: 'Draft',
+    statusReview: 'In review',
+    statusPublished: 'Published',
+    nodeCount: 'Nodes',
+    edgeCount: 'Edges',
+    nodeEdge: 'Nodes / Edges',
+    updatedAt: 'Updated',
+    openEditor: 'Edit',
+    batchDelete: 'Delete selected',
+    importJson: 'Import JSON',
+    importJsonTip: 'Pick a .json file exported from the editor'
   }
 }

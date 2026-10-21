@@ -6,6 +6,10 @@
 - UI 原型：[flow-editor-ui.html](/design/flow-editor-ui.html)（可切档位、切元件库，实时看差异）
 - 在线演示：`/flow/index` 列表 → 任一行的「编辑」；页面顶部有一条配置演示条，可现场切 `preset` / 关 `features` / 换元件库
 
+列表页沿用项目标准页写法（`SearchForm + ProTable + ProDialog/ProForm`），筛选、分页、列设置、导出与其它业务页一致：
+
+![流程图列表页](./screenshot-flow-list.png)
+
 ## 为什么做成「可配置组件」
 
 同一家公司里，流程图的用法差别很大：给车间看板嵌一个只读小图，跟给工艺工程师画 200 道工序的全图，不应该是两个组件。所以这里的做法是：
@@ -52,7 +56,7 @@ resolveConfig()  → ResolvedFlowConfig（唯一真源，组件内部只认它�
 | `src/components/FlowEditor/FlowViewer.vue` | 只读嵌入（E15）：`preset: 'mini' + readonly` 的一层糖 |
 | `src/config/flow.ts` | 全局默认值 `flowDefaults` + `configureFlowEditor()` |
 | `src/api/flow.ts` | 流程图接口（列表 / 详情 / 保存 / 草稿 / 版本 / 发布 / 回滚 / 导入） |
-| `src/views/flow/index.vue` · `editor.vue` | 列表页与编辑页（编辑页带配置演示条） |
+| `src/views/flow/index.vue` · `editor.vue` | 列表页（SearchForm + ProTable，支持名称/阶段/状态筛选、批量删除、导入 JSON）与编辑页（带配置演示条） |
 
 ## 快速上手
 
@@ -327,7 +331,7 @@ const myRule: ValidateRule = {
 | 文件 | 覆盖 |
 | --- | --- |
 | `test/unit/flow-editor.spec.ts` | 31 个：配置三层合并、元件库解析与搜索、序列化与未知类型降级、7 条校验、dagre 布局、diff、仿真关键路径/良率、模板与 AI 兜底 |
-| `test/e2e/flow-editor.spec.ts` | 8 个：列表页、拖拽建节点、改名→切走→回来草稿恢复、`preset=mini` 收敛、palette 三个开关、只读、校验面板、导出 JSON |
+| `test/e2e/flow-editor.spec.ts` | 10 个：列表页、列表页筛选/重置/新建、拖拽建节点、改名→切走→回来草稿恢复、`preset=mini` 收敛、palette 三个开关、只读、校验面板、导出 JSON、全屏下浮层仍在渲染树内 |
 
 纯函数（配置 / 序列化 / 校验 / 布局 / diff / 仿真）全部放在无 DOM 依赖的模块里，单测跑得快也稳；e2e 只覆盖「浏览器里点得到、看得见」的部分。
 
@@ -350,3 +354,6 @@ npx playwright test test/e2e/flow-editor.spec.ts
 8. **工具条图名输入框被 flex 压成 3px** → `.wb-flow-toolbar { flex-wrap: wrap }` + `.fname { flex: none }`。
 9. **`diffGraph` 不比元信息** → 图名 / 泳道变更要单独判，否则草稿比对会漏。
 10. **改 `preset` 后旧图不认新类型** → `unknownTypes` 会提示降级，别当没发生。
+11. **全屏后弹窗"显示不出来"** → 原生全屏只渲染 `fullscreenElement` 这棵子树，而 Element Plus 的弹窗 / 抽屉 / 消息 / 下拉全部 teleport 在 `body` 上，容器全屏时它们都在树外（DOM 还在、尺寸也有，就是用户看不见）。解法是**把全屏目标抬到 `document.documentElement`**，再用 `position: fixed; inset: 0` 让编辑器铺满视口——浮层依旧在树内且 `z-index` 从 2000 起，会正常盖在编辑器之上。
+12. **全屏切换不会触发 `window.resize`** → 别指望 resize 监听去重算画布。LogicFlow 内部有 `ResizeObserver` 观察容器，尺寸变化会自己 `resize()`；额外的手动 resize 是冗余的。
+13. **列表页筛选条件传空串等于没筛** → 组装查询参数时要 `if (value)` 逐个挑，空串会把 `name=''` 发出去（当前实现里 mock 会忽略空值，但真实后端不保证）。

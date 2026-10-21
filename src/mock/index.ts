@@ -32,7 +32,8 @@ function resources(): Record<string, ResourceDef> {
     '/monitor/jobLog/list': { list: db.jobLogs, key: 'jobLogId', search: ['jobName'] },
     '/tool/gen/db/list': { list: db.genTables, key: 'tableId', search: ['tableName', 'tableComment'] },
     '/demo/list': { list: db.demos, key: 'id', search: ['name'] },
-    // ⚠️ 只要存在 /flow/:id，就必须登记 /flow/list，否则 'list' 会被当成 id
+    // 兜底：/flow/list 现在由精确路由处理（要拆节点数、不带 graph），
+    // 这条留着是为了「万一精确路由没了」也不会把 'list' 当成 id 去查详情。
     '/flow/list': { list: db.flows, key: 'id', search: ['name'] }
   }
 }
@@ -407,6 +408,53 @@ const routes: Record<string, Handler> = {
     ]),
 
   /* ────────── 流程图（FlowEditor） ────────── */
+  /*
+   * 列表：显式声明而不是走通用 resources()。
+   * 两个原因：① 列表不该把整张 graph 塞进响应（真实后端也不会）；
+   * ② 列表要展示节点数，这个字段只有拆开 graph 才拿得到。
+   */
+  'GET /flow/list': (query) => {
+    let rows = db.flows as any[]
+    if (query.name) rows = rows.filter((f) => String(f.name ?? '').includes(String(query.name)))
+    if (query.category) rows = rows.filter((f) => String(f.category) === String(query.category))
+    if (query.status) rows = rows.filter((f) => String(f.status) === String(query.status))
+    const list = rows.map((f) => ({
+      id: f.id,
+      name: f.name,
+      category: f.category,
+      description: f.description,
+      status: f.status,
+      version: f.version ?? 1,
+      updatedAt: f.updatedAt,
+      nodeCount: f.graph?.nodes?.length ?? 0,
+      edgeCount: f.graph?.edges?.length ?? 0
+    }))
+    return ok(paginate(list, query))
+  },
+
+  // 新建：通用 POST 只回 ok(null)，页面拿不到 id 就没法「建完直接进去画」
+  'POST /flow': (_q, body) => {
+    const id = `F${Date.now()}`
+    const name = body?.name || '未命名流程'
+    db.flows.unshift({
+      id,
+      name,
+      category: body?.category || 'process',
+      description: body?.description || '',
+      updatedAt: Date.now(),
+      version: 1,
+      status: 'draft',
+      graph: {
+        schema: 1,
+        meta: { id, name, category: body?.category || 'process', updatedAt: Date.now() },
+        nodes: [],
+        edges: [],
+        groups: []
+      }
+    })
+    return ok({ id })
+  },
+
   // 详情：返回完整 FlowGraph（含 nodes / edges / groups）
   'GET /flow/:id': (_q, _b, params) => ok(db.flows.find((f) => f.id === params.id)?.graph ?? null),
 

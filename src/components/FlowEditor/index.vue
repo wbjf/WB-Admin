@@ -148,11 +148,13 @@ onMounted(async () => {
   emit('ready', buildApi())
 
   if (cfg.value.features.collab) void setupCollab()
+  if (screenfull.isEnabled) screenfull.on('change', onFullscreenChange)
   window.addEventListener('resize', onResize)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
+  if (screenfull.isEnabled) screenfull.off('change', onFullscreenChange)
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('beforeunload', onBeforeUnload)
   collabHandle?.destroy()
@@ -259,12 +261,25 @@ async function doImport(): Promise<void> {
   input.click()
 }
 
+/**
+ * 全屏：请求的是 documentElement 而不是编辑器容器。
+ *
+ * 原生全屏只渲染「全屏元素」这棵子树，而 Element Plus 的弹窗 / 抽屉 / 消息 /
+ * 下拉全部 teleport 到 body —— 容器全屏时它们都在子树之外，表现就是
+ * 「点了版本弹窗，什么都没出来」。把全屏目标抬到 html，浮层依旧在树内；
+ * 再用 .is-fullscreen 把编辑器 fixed 铺满视口，视觉上还是「编辑器独占屏幕」。
+ */
+function onFullscreenChange(): void {
+  fullscreen.value = screenfull.isFullscreen
+}
+
 async function toggleFullscreen(): Promise<void> {
   if (!cfg.value.features.fullscreen) return
-  if (screenfull.isEnabled && rootEl.value) {
-    await screenfull.toggle(rootEl.value)
+  if (screenfull.isEnabled) {
+    await screenfull.toggle(document.documentElement)
     fullscreen.value = screenfull.isFullscreen
   } else {
+    // 浏览器不支持（或被 iframe 策略禁用）：退化成 CSS 伪全屏，至少铺满视口
     fullscreen.value = !fullscreen.value
   }
 }
@@ -519,6 +534,13 @@ watch(
   overflow: hidden;
 }
 .wb-flow.is-fullscreen {
+  /* 全屏目标虽是 html，视觉上要让编辑器独占视口：fixed 铺满并压过布局层 */
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  /* 弹窗 / 下拉 / 消息的 z-index 从 2000 起，仍会盖在编辑器之上 */
+  height: auto !important;
+  margin: 0;
   border-radius: 0;
   border: none;
 }

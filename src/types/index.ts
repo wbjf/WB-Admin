@@ -533,4 +533,7 @@ export interface FlowListItem {
   updatedAt: number
   version?: number
   status?: 'draft' | 'review' | 'published'
+  /** 列表展示用：节点 / 连线数（列表接口由 graph 拆出来，不返回整张图） */
+  nodeCount?: number
+  edgeCount?: number
 }
