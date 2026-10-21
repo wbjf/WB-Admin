@@ -81,7 +81,8 @@ export default defineConfig({
             { text: 'SearchForm 查询区', link: '/components/search-form' },
             { text: 'ProDialog 弹窗', link: '/components/pro-dialog' },
             { text: 'ProUpload 上传', link: '/components/pro-upload' },
-            { text: 'DeviceTree 设备树', link: '/components/device-tree' }
+            { text: 'DeviceTree 设备树', link: '/components/device-tree' },
+            { text: 'FlowEditor 流程图编辑器', link: '/components/flow-editor' }
           ]
         },
         {

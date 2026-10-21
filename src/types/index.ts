@@ -383,3 +383,154 @@ export interface AiChatTransport {
   /** 完成后 resolve；被 abort 时应当直接结束（不 reject） */
   chat(req: AiChatRequest, handlers: AiChatHandlers): Promise<void>
 }
+
+/* ────────────────── 流程图（FlowEditor） ────────────────── */
+
+/** 流程图元信息 */
+export interface FlowMeta {
+  id: string
+  name: string
+  /** 业务类型：工艺路线 / 设备布局 / 通用流程 */
+  category?: 'process' | 'layout' | 'generic'
+  description?: string
+  /** 缩略图（dataURL），列表页用 */
+  thumbnail?: string
+  createdBy?: string
+  updatedAt: number
+  /** 服务端版本号，草稿与已发布分离 */
+  version?: number
+}
+
+/** 工艺参数（recipe 名、温度、时间、气体流量…） */
+export interface FlowParam {
+  key: string
+  value: string
+  unit?: string
+}
+
+/** 节点（LogicFlow 原生字段 + 业务属性） */
+export interface FlowNode {
+  id: string
+  /** 节点类型：'litho' | 'etch' | 'cmp' | 'decision' | 自定义 */
+  type: string
+  x: number
+  y: number
+  /** 节点显示文本 */
+  text?: string
+  width?: number
+  height?: number
+  properties: {
+    /** 工序编号，如 OP-0120 */
+    code?: string
+    /** 备注 */
+    remark?: string
+    /** 绑定的设备 id（来自设备树） */
+    deviceId?: string
+    deviceName?: string
+    /** 所属区域 / 泳道 */
+    bay?: string
+    /** 阶段：FEOL / BEOL / 封装 */
+    stage?: string
+    /** 标准节拍（分钟） */
+    cycleTime?: number
+    /** 良率（0~1），仿真用 */
+    yield?: number
+    /** 工艺参数，动态键值对 */
+    params?: FlowParam[]
+    /** 自定义配色 / 图标 */
+    color?: string
+    icon?: string
+    locked?: boolean
+    /** 评论数（P2 评论） */
+    comments?: FlowComment[]
+    [key: string]: unknown
+  }
+}
+
+/** 连线 */
+export interface FlowEdge {
+  id: string
+  type?: 'polyline' | 'line' | 'bezier'
+  sourceNodeId: string
+  targetNodeId: string
+  /** 连线标签：OK / NG / 条件表达式 */
+  text?: string
+  /** 折线拐点（LogicFlow polyline） */
+  pointsList?: Array<{ x: number; y: number }>
+  properties: {
+    /** main 主流程 / rework 返工 / scrap 报废 / material 物料流 */
+    kind?: 'main' | 'rework' | 'scrap' | 'material'
+    dashed?: boolean
+    remark?: string
+    [key: string]: unknown
+  }
+}
+
+/** 泳道 / 区域框 */
+export interface FlowGroupBox {
+  id: string
+  name: string
+  x: number
+  y: number
+  w: number
+  h: number
+  color?: string
+}
+
+/** 一张完整的图（导出 / 导入的单位） */
+export interface FlowGraph {
+  /** 结构版本，导入时校验，不同版本走迁移 */
+  schema: 1
+  meta: FlowMeta
+  nodes: FlowNode[]
+  edges: FlowEdge[]
+  /** 泳道 / 区域框 */
+  groups?: FlowGroupBox[]
+}
+
+/** 版本快照 */
+export interface FlowVersion {
+  id: string
+  flowId: string
+  /** 版本号，从 1 开始递增 */
+  version: number
+  name: string
+  remark?: string
+  createdBy?: string
+  createdAt: number
+  graph: FlowGraph
+}
+
+/** 节点评论（E13） */
+export interface FlowComment {
+  id: string
+  nodeId: string
+  author: string
+  content: string
+  createdAt: number
+  resolved?: boolean
+}
+
+/** 校验问题 */
+export interface FlowIssue {
+  /** 规则编号 */
+  code: string
+  /** 严重级别：error 必须改 / warn 建议改 / info 提示 */
+  level: 'error' | 'warn' | 'info'
+  message: string
+  /** 涉及的元素，点击定位用 */
+  nodeIds?: string[]
+  edgeIds?: string[]
+}
+
+/** 列表项（GET /flow/list 返回） */
+export interface FlowListItem {
+  id: string
+  name: string
+  category?: FlowMeta['category']
+  description?: string
+  thumbnail?: string
+  updatedAt: number
+  version?: number
+  status?: 'draft' | 'review' | 'published'
+}

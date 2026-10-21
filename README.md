@@ -111,6 +111,7 @@ npm run dev          # http://localhost:3000
 | `DeptSelect` | 部门树选择器 |
 | `DeviceTree` | 区域-设备两级树：拼音首字母排序（数字 → A-Z → 其它，自然序 `A2 < A10`）+ **偏好收藏置顶**，收藏按登录人隔离、暂存本地，可换后端适配器 |
 | `AiChat` | 全局 AI 对话面板：顶栏图标 / `Ctrl+I` 唤起，**多会话 + 分组管理**，流式回复、附件随消息发送、模型切换、历史按登录人持久化。默认走**纯前端模拟**（静态部署可用），换一行即可接真实后端 |
+| `FlowEditor` | **可配置**流程图 / 工艺流程编辑器（LogicFlow）：拖拽元件库、连线、属性面板、自动布局、校验定位、版本 diff、模板、AI 生成、节拍分析、只读嵌入。`preset` 三档（mini / standard / pro）+ 全局默认 + 单实例三层收敛，元件库也可整体替换 |
 
 ### 设备树与偏好
 
@@ -148,6 +149,16 @@ configureAiTransport(createHttpTransport({ baseURL: '/api' }))
 - **会话与分组**：左侧会话栏可新建 / 切换 / 重命名 / 删除对话，并按分组归类（分组可折叠、改名、删除，删组不删对话）。标题取首条消息前 20 字，列表按最近使用排序；窄屏下会话栏为浮层且默认收起。生成中切到别的会话，回答仍写回原会话。
 - **历史**：`wb-admin:ai-chat:{userId}`，未登录落 `guest` 桶；存储结构 v2（`sessions` + `groups` + `activeId`），**v1 的单会话历史会自动迁移成一条会话**，不会因升级丢记录；切换登录人自动重载，不会看到上一个人的对话。
 
+### 流程图编辑器
+
+`src/components/FlowEditor/`：基于 LogicFlow 的可配置流程 / 工艺流程编辑器。演示页 `/flow/index`（列表）→ 任一行的「编辑」，编辑页顶部有一条配置演示条，可现场切档位、关功能、换元件库。
+
+- **三层配置**：`preset`（mini / standard / pro）→ `configureFlowEditor()` 全局默认 → 单实例 `:config`。合并只在 `resolveConfig()` 里做一次，内部统一读 `cfg.xxx`。
+- **元件库可换**：`palette.groups` 整体替换 / `extend` 增补 / `exclude` 剔除；不在库里的 `type` 不注册节点，旧图里的未知类型降级为通用节点并提示。
+- **草稿**：IndexedDB（`wb-admin-flow`）+ 500ms 防抖 + 卸载 flush；重进时与当前图比对后才问「恢复 / 丢弃」。
+- **可选能力按需加载**：`ai` / `collab` / `simulate` 走动态 `import()`，开关关掉时对应 chunk 不会被请求。
+- 完整说明见 [docs/components/flow-editor.md](docs/components/flow-editor.md)，需求见 [docs/design/flow-editor.md](docs/design/flow-editor.md)，UI 原型 [docs/public/design/flow-editor-ui.html](docs/public/design/flow-editor-ui.html)。
+
 ### Hooks
 `useCrud`（CRUD 全流程）、`useTable`（轻量列表）、`useDict`、`useDownload`、`usePermission`、`useAiChat`（AI 会话）、`useDevicePreference`（设备偏好）、`useDeviceTree`（树排序编排）
 
@@ -162,7 +173,7 @@ configureAiTransport(createHttpTransport({ baseURL: '/api' }))
 - 内置 mock 服务（零依赖中间件，可开关）
 - Dockerfile + Nginx（SPA history 回退 + gzip）+ docker-compose
 - GitHub Actions：lint / typecheck / unit / build / e2e
-- Vitest 单测（17 例）+ Playwright E2E
+- Vitest 单测（131 例）+ Playwright E2E
 
 ### 国际化
 中英文双语（`vue-i18n` + Element Plus locale 联动），文案集中在 `src/locales/lang/*`，运行时切换。

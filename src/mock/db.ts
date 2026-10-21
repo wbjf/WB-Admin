@@ -1,4 +1,5 @@
 import Mock from 'mockjs'
+import { sampleFeolGraph } from './flow-sample'
 
 const { Random } = Mock
 
@@ -23,7 +24,11 @@ export const db = {
   genTables: [] as any[],
   demos: [] as any[],
   /** 区域 → 设备 的两级树（mock 直接用嵌套结构，不再让前端 buildTree） */
-  deviceAreas: [] as any[]
+  deviceAreas: [] as any[],
+  /** 流程图定义（FlowEditor）：列表项 + graph 内容 */
+  flows: [] as any[],
+  /** 流程图版本快照 */
+  flowVersions: [] as any[]
 }
 
 function id(i: number = 0, prefix = ''): string {
@@ -217,6 +222,50 @@ export function seed(): void {
   }))
 
   db.deviceAreas = buildDeviceAreas()
+
+  // 流程图：第一条给完整的 FEOL 示例，其余为占位
+  const sample = sampleFeolGraph('F1')
+  db.flows = [
+    {
+      id: 'F1',
+      name: sample.meta.name,
+      category: 'process',
+      description: '28nm 逻辑工艺前段（含返工分支）',
+      updatedAt: Date.now(),
+      version: 1,
+      status: 'published',
+      graph: sample
+    },
+    ...Array.from({ length: 7 }).map((_, i) => ({
+      id: `F${i + 2}`,
+      name: `${Random.pick(['BEOL 金属互连', '封装测试流', '设备布局图', '清洗工序流'])}-${i + 2}`,
+      category: Random.pick(['process', 'layout', 'generic']),
+      description: Random.sentence(5, 10),
+      updatedAt: Date.now() - i * 3600_000,
+      version: 1,
+      status: i % 3 === 0 ? 'draft' : 'published',
+      graph: {
+        schema: 1,
+        meta: { id: `F${i + 2}`, name: `流程 ${i + 2}`, updatedAt: Date.now() },
+        nodes: [],
+        edges: [],
+        groups: []
+      }
+    }))
+  ]
+
+  db.flowVersions = [
+    {
+      id: 'V1',
+      flowId: 'F1',
+      version: 1,
+      name: '初版',
+      remark: '从模板创建',
+      createdBy: 'admin',
+      createdAt: Date.now() - 86400_000,
+      graph: sample
+    }
+  ]
 }
 
 /**
@@ -356,6 +405,36 @@ export function buildMenus(): any[] {
           component: 'demo/device/index',
           perms: 'demo:device:list',
           visible: '0'
+        }
+      ]
+    },
+    {
+      id: '5', parentId: '0', name: 'Flow', title: '流程管理', icon: 'Share', type: 'M',
+      path: '/flow', component: 'Layout', visible: '0', sort: 5, children: [
+        {
+          id: '51',
+          parentId: '5',
+          name: 'FlowList',
+          title: '流程图',
+          icon: 'Connection',
+          type: 'C',
+          path: 'index',
+          component: 'flow/index',
+          perms: 'flow:list',
+          visible: '0'
+        },
+        {
+          id: '52',
+          parentId: '5',
+          name: 'FlowEditor',
+          title: '流程编辑',
+          icon: 'EditPen',
+          type: 'C',
+          // 带参编辑页：不进侧边栏（visible: '1'），但路由照常注册
+          path: 'editor/:id',
+          component: 'flow/editor',
+          perms: 'flow:edit',
+          visible: '1'
         }
       ]
     }

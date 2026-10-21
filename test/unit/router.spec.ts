@@ -80,9 +80,12 @@ describe('菜单 → 路由转换', () => {
     expect(paths).toContain('/demo/crud')
     expect(paths).toContain('/demo/dialog')
     expect(paths).toContain('/demo/device')
+    expect(paths).toContain('/flow/index')
+    // 带参编辑页 sidebar 不显示，但路由必须注册（否则从列表页点「编辑」进不去）
+    expect(paths).toContain('/flow/editor/:id')
     // 解析不到组件的菜单会被静默丢弃，数量对不上说明白名单漏了文件
-    // 菜单叶子页共 20 个：系统管理 9 + 系统监控 5 + 系统工具 3 + 示例演示 3
-    expect(paths.length).toBe(20)
+    // 菜单叶子页共 22 个：系统管理 9 + 系统监控 5 + 系统工具 3 + 示例演示 3 + 流程管理 2
+    expect(paths.length).toBe(22)
   })
 })
 
@@ -95,7 +98,10 @@ describe('菜单可见性语义', () => {
 
   it('过滤后仍保留目录及其子菜单', () => {
     const visible = filterVisibleMenus(menus)
-    expect(visible.length).toBe(4)
+    expect(visible.length).toBe(5)
     expect(visible[0].children?.length).toBe(9)
+    // visible='1' 的带参页不进侧边栏，但同目录下的列表页要留着
+    const flow = visible.find((m) => m.path === '/flow')
+    expect(flow?.children?.map((c) => c.path)).toEqual(['index'])
   })
 })

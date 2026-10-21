@@ -31,7 +31,9 @@ function resources(): Record<string, ResourceDef> {
     '/monitor/job/list': { list: db.jobs, key: 'jobId', search: ['jobName'] },
     '/monitor/jobLog/list': { list: db.jobLogs, key: 'jobLogId', search: ['jobName'] },
     '/tool/gen/db/list': { list: db.genTables, key: 'tableId', search: ['tableName', 'tableComment'] },
-    '/demo/list': { list: db.demos, key: 'id', search: ['name'] }
+    '/demo/list': { list: db.demos, key: 'id', search: ['name'] },
+    // ⚠️ 只要存在 /flow/:id，就必须登记 /flow/list，否则 'list' 会被当成 id
+    '/flow/list': { list: db.flows, key: 'id', search: ['name'] }
   }
 }
 
@@ -51,7 +53,8 @@ function writeMap(): Record<string, ResourceDef> {
     '/monitor/operlog': { list: db.operlogs, key: 'operId' },
     '/monitor/logininfor': { list: db.loginlogs, key: 'infoId' },
     '/monitor/job': { list: db.jobs, key: 'jobId' },
-    '/demo': { list: db.demos, key: 'id' }
+    '/demo': { list: db.demos, key: 'id' },
+    '/flow': { list: db.flows, key: 'id' }
   }
 }
 
@@ -72,7 +75,8 @@ const ALL_PERMS = [
   'system:file:list', 'system:file:add', 'system:file:remove',
   'demo:crud:list', 'demo:crud:add', 'demo:crud:edit', 'demo:crud:remove', 'demo:crud:export',
   'demo:dialog:list',
-  'demo:device:list'
+  'demo:device:list',
+  'flow:list', 'flow:add', 'flow:edit', 'flow:remove', 'flow:design'
 ]
 
 const routes: Record<string, Handler> = {
@@ -400,7 +404,72 @@ const routes: Record<string, Handler> = {
       { title: '关于 2026 年国庆放假安排的通知', date: '2026-09-20', type: '公告' },
       { title: '系统将于本周六凌晨进行例行维护', date: '2026-09-19', type: '通知' },
       { title: '新版数据看板已上线，欢迎试用', date: '2026-09-18', type: '通知' }
-    ])
+    ]),
+
+  /* ────────── 流程图（FlowEditor） ────────── */
+  // 详情：返回完整 FlowGraph（含 nodes / edges / groups）
+  'GET /flow/:id': (_q, _b, params) => ok(db.flows.find((f) => f.id === params.id)?.graph ?? null),
+
+  // 保存图内容
+  'PUT /flow/:id/graph': (_q, body, params) => {
+    const i = db.flows.findIndex((f) => f.id === params.id)
+    if (i > -1) {
+      db.flows[i] = { ...db.flows[i], graph: body, updatedAt: Date.now(), name: body?.meta?.name || db.flows[i].name }
+    }
+    return ok(null)
+  },
+
+  // 服务端草稿（可选能力）
+  'PUT /flow/:id/draft': (_q, body, params) => {
+    const i = db.flows.findIndex((f) => f.id === params.id)
+    if (i > -1) db.flows[i] = { ...db.flows[i], draft: body, updatedAt: Date.now() }
+    return ok(null)
+  },
+
+  // 版本：列表 / 发布 / 回滚
+  'GET /flow/:id/versions': (_q, _b, params) =>
+    ok(db.flowVersions.filter((v) => v.flowId === params.id).sort((a, b) => b.version - a.version)),
+  'POST /flow/:id/versions': (_q, body, params) => {
+    const flow = db.flows.find((f) => f.id === params.id)
+    if (!flow) return fail('流程图不存在')
+    const maxV = db.flowVersions.filter((v) => v.flowId === params.id).reduce((m, v) => Math.max(m, v.version), 0)
+    const ver = {
+      id: `V${Date.now()}`,
+      flowId: params.id,
+      version: maxV + 1,
+      name: body?.name || `v${maxV + 1}`,
+      remark: body?.remark || '',
+      createdBy: 'admin',
+      createdAt: Date.now(),
+      graph: flow.graph
+    }
+    db.flowVersions.unshift(ver)
+    flow.version = ver.version
+    return ok(ver)
+  },
+  'POST /flow/:id/rollback': (_q, body, params) => {
+    const ver = db.flowVersions.find((v) => v.flowId === params.id && String(v.version) === String(body?.version))
+    if (!ver) return fail('版本不存在')
+    const i = db.flows.findIndex((f) => f.id === params.id)
+    if (i > -1) db.flows[i] = { ...db.flows[i], graph: ver.graph, updatedAt: Date.now() }
+    return ok(ver.graph)
+  },
+
+  // 导入 .flow.json
+  'POST /flow/import': (_q, body) => {
+    const newId = `F${Date.now().toString().slice(-6)}`
+    db.flows.unshift({
+      id: newId,
+      name: body?.meta?.name || '导入的流程',
+      category: body?.meta?.category || 'generic',
+      description: '',
+      updatedAt: Date.now(),
+      version: 1,
+      status: 'draft',
+      graph: { ...body, meta: { ...(body?.meta || {}), id: newId } }
+    })
+    return ok({ id: newId })
+  }
 }
 
 /** 菜单树里按条件查找 */
