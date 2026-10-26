@@ -644,6 +644,7 @@ export default {
     nodeEdge: '节点/连线',
     updatedAt: '更新时间',
     openEditor: '编辑',
+    backToList: '返回列表',
     batchDelete: '删除选中',
     importJson: '导入 JSON',
     importJsonTip: '选择编辑器导出的 .json 文件'

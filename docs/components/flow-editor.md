@@ -4,11 +4,15 @@
 
 - 需求文档：[流程图编辑器 PRD](/design/flow-editor)
 - UI 原型：[flow-editor-ui.html](/design/flow-editor-ui.html)（可切档位、切元件库，实时看差异）
-- 在线演示：`/flow/index` 列表 → 任一行的「编辑」；页面顶部有一条配置演示条，可现场切 `preset` / 关 `features` / 换元件库
+- 在线演示：`/flow/index` 列表 → 任一行的「编辑」。**编辑页不摆任何配置开关**——`preset` / `features` / `palette` 全部写在 `editor.vue` 的 `editorConfig` 里，想换就改代码（见下方「落地页怎么写」）
 
 列表页沿用项目标准页写法（`SearchForm + ProTable + ProDialog/ProForm`），筛选、分页、列设置、导出与其它业务页一致：
 
 ![流程图列表页](./screenshot-flow-list.png)
+
+编辑器页同样是 `.wb-page` 纵向 flex 布局：配置条固定、画布吃掉剩余高度，四周留白与其它页面一致（12px）：
+
+![流程图编辑器](./screenshot-flow-editor.png)
 
 ## 为什么做成「可配置组件」
 
@@ -56,7 +60,7 @@ resolveConfig()  → ResolvedFlowConfig（唯一真源，组件内部只认它�
 | `src/components/FlowEditor/FlowViewer.vue` | 只读嵌入（E15）：`preset: 'mini' + readonly` 的一层糖 |
 | `src/config/flow.ts` | 全局默认值 `flowDefaults` + `configureFlowEditor()` |
 | `src/api/flow.ts` | 流程图接口（列表 / 详情 / 保存 / 草稿 / 版本 / 发布 / 回滚 / 导入） |
-| `src/views/flow/index.vue` · `editor.vue` | 列表页（SearchForm + ProTable，支持名称/阶段/状态筛选、批量删除、导入 JSON）与编辑页（带配置演示条） |
+| `src/views/flow/index.vue` · `editor.vue` | 列表页（SearchForm + ProTable，支持名称/阶段/状态筛选、批量删除、导入 JSON）与编辑页（配置写在代码里，只保留「返回列表」） |
 
 ## 快速上手
 
@@ -103,6 +107,39 @@ onMounted(async () => {
 ```vue
 <FlowViewer :graph="graph" height="320px" :interactive="false" />
 ```
+
+### 落地页怎么写
+
+配置属于代码，不属于界面——页面里不要摆「切档位 / 关功能」的开关条。参考 `src/views/flow/editor.vue`：
+
+```vue
+<script setup lang="ts">
+/** 只声明一次，改配置就改这里；全站默认值在 src/config/flow.ts */
+const editorConfig: FlowEditorOptions = { preset: 'pro' }
+</script>
+
+<template>
+  <div class="wb-page">
+    <div v-loading="loading" class="editor-wrap">
+      <FlowEditor v-if="graph" :graph="graph" :flow-id="flowId" :config="editorConfig" @save="onSave" @change="onChange">
+        <template #toolbar-left>
+          <el-button size="small" @click="back">返回列表</el-button>
+        </template>
+      </FlowEditor>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.editor-wrap {
+  flex: 1 1 0;
+  min-height: 400px;
+  display: flex;
+}
+</style>
+```
+
+两个约定：容器用 `.wb-page`（留白只由 `.wb-app-main` 提供一次）；「返回列表」这类页面级操作放进 `toolbar-left` 插槽，编辑器自己的工具条不用改动。
 
 ## 配置项
 
@@ -331,7 +368,8 @@ const myRule: ValidateRule = {
 | 文件 | 覆盖 |
 | --- | --- |
 | `test/unit/flow-editor.spec.ts` | 31 个：配置三层合并、元件库解析与搜索、序列化与未知类型降级、7 条校验、dagre 布局、diff、仿真关键路径/良率、模板与 AI 兜底 |
-| `test/e2e/flow-editor.spec.ts` | 10 个：列表页、列表页筛选/重置/新建、拖拽建节点、改名→切走→回来草稿恢复、`preset=mini` 收敛、palette 三个开关、只读、校验面板、导出 JSON、全屏下浮层仍在渲染树内 |
+| `test/e2e/flow-editor.spec.ts` | 11 个：列表页、列表页筛选/重置/新建、拖拽建节点、改名→切走→回来草稿恢复、代码配置（pro 档按钮 + 半导体库）、只读（走 `?readonly=1`）、返回列表、校验面板、导出 JSON、全屏下浮层仍在渲染树内、留白与标准页一致 |
+| `test/unit/page-template-root.spec.ts` | 2 个：所有页面模板的根节点唯一（不允许注释抢在根节点前） |
 
 纯函数（配置 / 序列化 / 校验 / 布局 / diff / 仿真）全部放在无 DOM 依赖的模块里，单测跑得快也稳；e2e 只覆盖「浏览器里点得到、看得见」的部分。
 
@@ -357,3 +395,6 @@ npx playwright test test/e2e/flow-editor.spec.ts
 11. **全屏后弹窗"显示不出来"** → 原生全屏只渲染 `fullscreenElement` 这棵子树，而 Element Plus 的弹窗 / 抽屉 / 消息 / 下拉全部 teleport 在 `body` 上，容器全屏时它们都在树外（DOM 还在、尺寸也有，就是用户看不见）。解法是**把全屏目标抬到 `document.documentElement`**，再用 `position: fixed; inset: 0` 让编辑器铺满视口——浮层依旧在树内且 `z-index` 从 2000 起，会正常盖在编辑器之上。
 12. **全屏切换不会触发 `window.resize`** → 别指望 resize 监听去重算画布。LogicFlow 内部有 `ResizeObserver` 观察容器，尺寸变化会自己 `resize()`；额外的手动 resize 是冗余的。
 13. **列表页筛选条件传空串等于没筛** → 组装查询参数时要 `if (value)` 逐个挑，空串会把 `name=''` 发出去（当前实现里 mock 会忽略空值，但真实后端不保证）。
+14. **落地页别再给容器加 `padding`** → 全站留白只由 `.wb-app-main` 提供一次（`--wb-content-padding: 12px`），页面容器一律用 `.wb-page`。自己再套一层 `padding: 12px` 就把四周留白变成 24px，编辑器这种"大色块"组件会让偏差格外明显。
+15. **页面模板的根节点必须唯一** → 在根节点前写一行 HTML 注释，组件就变成多根节点；`.wb-app-main` 的 `<transition mode="out-in"> + <keep-alive>` 拿不到单一子元素，**离开该页之后所有页面都空白**（URL 变了、路由也匹配了，就是不渲染，且零报错）。dev 下注释不剥离，生产构建里自动消失，所以只能在源码层挡住（`test/unit/page-template-root.spec.ts`）。
+16. **编辑器高度别用 `calc(100vh - 220px)`** → 220 是照着当时的顶栏 + 配置条 + 页脚硬凑的，换布局 / 加页签 / 窗口缩放立刻溢出或留空。正解是让页面纵向 flex：`.wb-page`（`height: 100%`）→ 配置条 `flex: none` → 编辑器容器 `flex: 1 1 0; min-height: 400px`，`height` 不传即 `100%`。`min-height` 只是兜底：视口太矮时页面自己滚，别把画布压扁。

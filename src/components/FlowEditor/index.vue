@@ -528,9 +528,10 @@ watch(
   display: flex;
   flex-direction: column;
   min-height: 320px;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
+  /* 与 .wb-card 同一套底色/边框/圆角，嵌在任何页面里都是一张普通卡片 */
+  background: var(--wb-bg-card);
+  border: 1px solid var(--wb-border);
+  border-radius: 8px;
   overflow: hidden;
 }
 .wb-flow.is-fullscreen {

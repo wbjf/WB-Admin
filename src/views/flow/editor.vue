@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElButton, ElCheckbox, ElMessage, ElRadioGroup, ElRadioButton } from 'element-plus'
+import { ElButton, ElMessage } from 'element-plus'
 import type { FlowGraph, FlowIssue } from '@/types'
 import { flowApi } from '@/api/flow'
 import FlowEditor from '@/components/FlowEditor/index.vue'
@@ -11,9 +11,24 @@ import { migrateFlow } from '@/components/FlowEditor/serialize'
 
 defineOptions({ name: 'FlowEditorPage' })
 
+/**
+ * ⚠️ 页面模板的根节点必须是唯一的：在根节点前再写一行 HTML 注释，组件就变成多根节点，
+ * 而 `.wb-app-main` 用的是「transition(mode=out-in) + keep-alive」，多根子节点拿不到
+ * 单一子元素 —— 表现为「一旦离开本页，之后所有页面都空白」且没有任何报错。
+ * 所以这类说明只能写在 script 里（见 test/unit/page-template-root.spec.ts）。
+ * 页面容器统一用 `.wb-page`：内容区留白只由 `.wb-app-main` 提供一次（12px）。
+ */
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+
+/**
+ * 编辑器的配置写在代码里，不在页面上摆开关。
+ * 三层生效顺序：preset 档位 → configureFlowEditor() 全局默认 → 这里的单实例 config。
+ * 想全站调整改 `src/config/flow.ts`；只改本页就动下面这个对象。
+ * 用法见 docs/components/flow-editor.md。
+ */
+const editorConfig: FlowEditorOptions = { preset: 'pro' }
 
 const flowId = computed(() => String(route.params.id || ''))
 const readonly = computed(() => route.query.readonly === '1')
@@ -23,71 +38,6 @@ const graph = ref<FlowGraph | null>(null)
 const current = ref<FlowGraph | null>(null)
 const saving = ref(false)
 const issues = ref<FlowIssue[]>([])
-
-/** 配置演示：同一组件在不同配置下的差异（对应 PRD 5.5 三档对照） */
-const ui = reactive({
-  preset: 'pro' as NonNullable<FlowEditorOptions['preset']>,
-  readonly: false,
-  minimap: true,
-  validate: true,
-  autoLayout: true,
-  version: true,
-  template: true,
-  lane: true,
-  lock: true,
-  fullscreen: true,
-  ai: false,
-  collab: false,
-  simulate: false,
-  comment: false,
-  search: true,
-  share: false,
-  importExcel: true,
-  legend: true,
-  /** 空串 = 跟随 preset 档位（用来演示「档位给默认值，实例可覆盖」） */
-  palette: '' as '' | 'semiconductor' | 'basic' | 'generic',
-  searchable: true,
-  collapsible: true,
-  draggable: true,
-  exportsPng: true,
-  exportsSvg: true,
-  exportsJson: true,
-  exportsExcel: true
-})
-
-const config = computed<FlowEditorOptions>(() => ({
-  preset: ui.preset,
-  features: {
-    minimap: ui.minimap,
-    validate: ui.validate,
-    autoLayout: ui.autoLayout,
-    version: ui.version,
-    template: ui.template,
-    lane: ui.lane,
-    lock: ui.lock,
-    fullscreen: ui.fullscreen,
-    ai: ui.ai,
-    collab: ui.collab,
-    simulate: ui.simulate,
-    comment: ui.comment,
-    search: ui.search,
-    share: ui.share,
-    importExcel: ui.importExcel,
-    legend: ui.legend
-  },
-  palette: {
-    preset: ui.palette || undefined,
-    searchable: ui.searchable,
-    collapsible: ui.collapsible,
-    draggable: ui.draggable
-  },
-  exports: [
-    ...(ui.exportsPng ? (['png'] as const) : []),
-    ...(ui.exportsSvg ? (['svg'] as const) : []),
-    ...(ui.exportsJson ? (['json'] as const) : []),
-    ...(ui.exportsExcel ? (['excel'] as const) : [])
-  ]
-}))
 
 async function load(): Promise<void> {
   if (!flowId.value) return
@@ -107,7 +57,7 @@ onMounted(load)
 watch(flowId, load)
 
 async function onSave(g: FlowGraph): Promise<void> {
-  if (readonly.value || ui.readonly) {
+  if (readonly.value) {
     ElMessage.warning(t('flow.saved'))
     return
   }
@@ -136,123 +86,41 @@ function back(): void {
 </script>
 
 <template>
-  <div class="page">
-    <div class="cfg-bar">
-      <div class="row">
-        <span class="lb">preset</span>
-        <el-radio-group v-model="ui.preset" size="small">
-          <el-radio-button value="mini">mini</el-radio-button>
-          <el-radio-button value="standard">standard</el-radio-button>
-          <el-radio-button value="pro">pro</el-radio-button>
-        </el-radio-group>
-
-        <span class="lb">palette</span>
-        <el-radio-group v-model="ui.palette" size="small">
-          <el-radio-button value="">跟随档位</el-radio-button>
-          <el-radio-button value="semiconductor">半导体</el-radio-button>
-          <el-radio-button value="basic">基础</el-radio-button>
-          <el-radio-button value="generic">通用</el-radio-button>
-        </el-radio-group>
-
-        <el-checkbox v-model="ui.readonly" size="small">readonly</el-checkbox>
-        <el-button size="small" @click="back">返回列表</el-button>
-        <el-button
-          size="small"
-          type="primary"
-          :loading="saving"
-          @click="onSave((current || graph) as FlowGraph)"
-        >
-          {{ t('flow.save') }}
-        </el-button>
-      </div>
-
-      <div class="row wrap">
-        <el-checkbox
-          v-for="k in [
-            'minimap',
-            'validate',
-            'autoLayout',
-            'version',
-            'template',
-            'lane',
-            'lock',
-            'fullscreen',
-            'ai',
-            'collab',
-            'simulate',
-            'comment',
-            'search',
-            'share',
-            'importExcel',
-            'legend'
-          ] as const"
-          :key="k"
-          v-model="ui[k]"
-          size="small"
-        >
-          {{ k }}
-        </el-checkbox>
-        <span class="sep" />
-        <el-checkbox v-model="ui.searchable" size="small">palette.searchable</el-checkbox>
-        <el-checkbox v-model="ui.collapsible" size="small">palette.collapsible</el-checkbox>
-        <el-checkbox v-model="ui.draggable" size="small">palette.draggable</el-checkbox>
-        <span class="sep" />
-        <el-checkbox v-model="ui.exportsPng" size="small">exports.png</el-checkbox>
-        <el-checkbox v-model="ui.exportsSvg" size="small">exports.svg</el-checkbox>
-        <el-checkbox v-model="ui.exportsJson" size="small">exports.json</el-checkbox>
-        <el-checkbox v-model="ui.exportsExcel" size="small">exports.excel</el-checkbox>
-      </div>
-    </div>
-
+  <div class="wb-page">
     <div v-loading="loading" class="editor-wrap">
       <FlowEditor
         v-if="graph"
-        :key="`${ui.preset}-${ui.readonly}-${ui.palette}`"
+        :key="flowId"
         :graph="graph"
         :flow-id="flowId"
-        :config="config"
-        :readonly="ui.readonly || readonly"
-        height="calc(100vh - 220px)"
+        :config="editorConfig"
+        :readonly="readonly"
         @save="onSave"
         @change="onChange"
         @validate="onValidate"
-      />
+      >
+        <template #toolbar-left>
+          <el-button size="small" data-test="flow-back" @click="back">
+            {{ t('flow.backToList') }}
+          </el-button>
+        </template>
+      </FlowEditor>
     </div>
   </div>
 </template>
 
 <style scoped>
-.page {
-  padding: 12px;
-}
-.cfg-bar {
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-bottom: 10px;
-  background: var(--el-bg-color);
-}
-.cfg-bar .row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.cfg-bar .row.wrap {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--el-border-color-lighter);
-}
-.cfg-bar .lb {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-.sep {
-  width: 1px;
-  height: 16px;
-  background: var(--el-border-color);
-}
 .editor-wrap {
-  min-height: 420px;
+  /**
+   * 撑满剩余高度：不再用 calc(100vh - 220px) 猜布局高度（窗口一变就溢出）。
+   * min-height 兜底：视口太矮时不把画布压扁，改由 .wb-page 自己滚动。
+   */
+  flex: 1 1 0;
+  min-height: 400px;
+  display: flex;
+}
+.editor-wrap > * {
+  flex: 1;
+  min-width: 0;
 }
 </style>

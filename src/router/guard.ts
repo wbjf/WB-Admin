@@ -39,7 +39,7 @@ router.beforeEach(async (to: RouteLocationNormalized, _from, next) => {
         const routes = await permStore.loadRoutes()
         applyDynamicRoutes(routes)
         if (routes.length) await permStore.loadMenus()
-        next({ path: resolveTarget(to), replace: true })
+        next({ ...resolveTarget(to), replace: true })
         return
       } catch (e) {
         console.error('[router] 加载用户信息/动态路由失败', e)
@@ -65,7 +65,7 @@ router.beforeEach(async (to: RouteLocationNormalized, _from, next) => {
         applyDynamicRoutes(routes)
         // 菜单树同样会丢，不补的话刷新后侧边栏是空的
         if (routes.length) await permStore.loadMenus()
-        next({ path: resolveTarget(to), replace: true })
+        next({ ...resolveTarget(to), replace: true })
         return
       } catch (e) {
         console.error('[router] 动态路由补偿失败', e)
@@ -92,8 +92,15 @@ const addedRouteKeys = new Set<string>()
  * 动态路由还没注册时，目标可能已被兜底路由（/:pathMatch(.*)*）先一步重定向到 /404，
  * 此时 `to` 已经是重定向后的结果，必须用 redirectedFrom 才能回到原地址。
  */
-function resolveTarget(to: RouteLocationNormalized): string {
-  return to.redirectedFrom?.fullPath ?? to.fullPath
+function resolveTarget(to: RouteLocationNormalized) {
+  /**
+   * 必须连 query / hash 一起带过去。
+   * 只写 `next({ path: fullPath })` 会把 `?readonly=1` 这类参数整段丢掉——
+   * vue-router 4 不会从 path 字符串里反解 query，实测直接打开
+   * `/flow/editor/F1?readonly=1` 会落到 `/flow/editor/F1`，只读分享链接失效。
+   */
+  const t = to.redirectedFrom ?? to
+  return { path: t.path, query: t.query, hash: t.hash }
 }
 
 /**

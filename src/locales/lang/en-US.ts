@@ -644,6 +644,7 @@ export default {
     nodeEdge: 'Nodes / Edges',
     updatedAt: 'Updated',
     openEditor: 'Edit',
+    backToList: 'Back to list',
     batchDelete: 'Delete selected',
     importJson: 'Import JSON',
     importJsonTip: 'Pick a .json file exported from the editor'

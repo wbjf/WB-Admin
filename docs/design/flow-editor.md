@@ -597,7 +597,7 @@ src/components/FlowEditor/
 └── types.ts
 src/config/flow.ts            # 全局默认配置（与 dialog.ts 同一套路）
 src/views/flow/index.vue      # 列表页（我的流程图）
-src/views/flow/editor.vue     # 编辑页（路由懒加载）
+src/views/flow/editor.vue     # 编辑页（路由懒加载；配置写在代码里，页面只保留「返回列表」）
 src/api/flow.ts               # 接口
 src/mock/index.ts             # 加 /flow/* 路由
 ```

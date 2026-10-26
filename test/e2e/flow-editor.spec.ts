@@ -108,57 +108,28 @@ test.describe('FlowEditor', () => {
     await expect(page.locator('.wb-flow-toolbar .fname input')).toHaveValue(NAME)
   })
 
-  test('preset=mini：高级按钮与元件库按档位收敛', async ({ page }) => {
+  /**
+   * 配置写在代码里（editor.vue 的 editorConfig = { preset: 'pro' }），
+   * 页面没有开关条 —— 这里验证「代码里的配置」真的渲染出来了。
+   */
+  test('代码配置生效：pro 档渲染出高级按钮与半导体元件库', async ({ page }) => {
     await login(page)
     await openEditor(page)
 
-    await page.locator('.cfg-bar .el-radio-button', { hasText: 'mini' }).first().click()
-    await page.waitForTimeout(1500)
-
-    // 校验 / 自动布局 / 模板 / AI 都不渲染
-    await expect(page.locator('[data-test=tb-validate]')).toHaveCount(0)
-    await expect(page.locator('[data-test=tb-layout]')).toHaveCount(0)
-    await expect(page.locator('[data-test=tb-ai]')).toHaveCount(0)
-    // 元件库跟随档位降为基础库（2 组 10 项）
-    await expect(page.locator('.pal-group')).toHaveCount(2)
-    await expect(page.locator('.pal-chip')).toHaveCount(10)
-
-    await page.locator('.cfg-bar .el-radio-button', { hasText: 'pro' }).first().click()
-    await page.waitForTimeout(1500)
-    await expect(page.locator('[data-test=tb-validate]')).toHaveCount(1)
+    await expect(page.locator('[data-test=flow-editor]')).toHaveAttribute('data-preset', 'pro')
+    // pro 档才有的：校验 / 自动布局 / 模板 / 版本 / 分享
+    for (const action of ['validate', 'layout', 'template', 'version', 'share']) {
+      await expect(page.locator(`[data-test=tb-${action}]`)).toHaveCount(1)
+    }
+    // 半导体库 4 组（工序 / 设备 / 判定 / 物料）
+    await expect(page.locator('.pal-group')).toHaveCount(4)
   })
 
-  test('palette 开关：searchable / collapsible / draggable 真的生效', async ({ page }) => {
-    await login(page)
-    await openEditor(page)
-
-    // 关掉搜索：搜索框不渲染
-    await page.locator('.cfg-bar label', { hasText: 'palette.searchable' }).first().click()
-    await page.waitForTimeout(1200)
-    await expect(page.locator('.wb-flow-palette .pal-search')).toHaveCount(0)
-
-    // 关掉折叠：分组标题不再有折叠箭头
-    await page.locator('.cfg-bar label', { hasText: 'palette.collapsible' }).first().click()
-    await page.waitForTimeout(1200)
-    await expect(page.locator('.pal-group .caret')).toHaveCount(0)
-
-    // 关掉拖拽：元件置灰，按下不再产生拖拽影子
-    await page.locator('.cfg-bar label', { hasText: 'palette.draggable' }).first().click()
-    await page.waitForTimeout(1200)
-    await expect(page.locator('.pal-chip.disabled').first()).toBeVisible()
-    const chip = page.locator('.pal-chip').first()
-    const cb = await chip.boundingBox()
-    await page.mouse.move(cb!.x + cb!.width / 2, cb!.y + cb!.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(cb!.x + 200, cb!.y + 200, { steps: 6 })
-    await expect(page.locator('.wb-flow-ghost')).toHaveCount(0)
-    await page.mouse.up()
-  })
-
+  /** 只读走 URL 参数（只读分享场景），页面本身没有开关 */
   test('readonly：不渲染左侧元件库，画布仍可缩放', async ({ page }) => {
     await login(page)
-    await openEditor(page)
-    await page.locator('.cfg-bar label', { hasText: 'readonly' }).first().click()
+    await page.goto('/flow/editor/F1?readonly=1')
+    await page.waitForSelector('.wb-flow-canvas svg', { timeout: 30000 })
     await page.waitForTimeout(1500)
 
     await expect(page.locator('.wb-flow-palette')).toHaveCount(0)
@@ -166,6 +137,16 @@ test.describe('FlowEditor', () => {
     await expect(page.locator('[data-test=zoom-in]')).toBeVisible()
     await page.locator('[data-test=zoom-in]').click()
     await expect(page.locator('[data-test=zoom-in]')).toBeVisible()
+  })
+
+  test('工具条左侧的「返回列表」能回到列表页', async ({ page }) => {
+    await login(page)
+    await openEditor(page)
+    const back = page.locator('[data-test=flow-back]')
+    await expect(back).toBeVisible()
+    await back.click()
+    await page.waitForURL(/\/flow\/index/, { timeout: 10000 })
+    await expect(page.locator('.el-table__body tr').first()).toBeVisible({ timeout: 20000 })
   })
 
   test('校验面板可打开并列出问题', async ({ page }) => {
@@ -239,5 +220,60 @@ test.describe('FlowEditor', () => {
     }))
     expect(after.fs).toBe(false)
     expect(after.pos).not.toBe('fixed')
+  })
+
+  /**
+   * 回归：「边距太大了」——页面容器自己又加了一层 padding，四周留白变成 24px。
+   * 口径是与标准页（demo/crud）对齐：内容区留白只由 .wb-app-main 提供一次。
+   */
+  test('编辑页留白与标准页一致', async ({ page }) => {
+    await login(page)
+
+    // 基准：标准页第一块卡片相对内容区（去掉 padding 后）的偏移
+    await page.goto('/demo/crud')
+    await expect(page.locator('.wb-page').first()).toBeVisible({ timeout: 20000 })
+    await page.waitForTimeout(600)
+    const base = await page.evaluate(() => {
+      const m = document.querySelector('.wb-app-main')!
+      const cs = getComputedStyle(m)
+      const r = m.getBoundingClientRect()
+      const first = document.querySelector('.wb-page')!.firstElementChild!.getBoundingClientRect()
+      return {
+        left: Math.round(first.x - (r.x + parseFloat(cs.paddingLeft))),
+        top: Math.round(first.y - (r.y + parseFloat(cs.paddingTop)))
+      }
+    })
+
+    await openEditor(page)
+    const ed = await page.evaluate(() => {
+      const m = document.querySelector('.wb-app-main')!
+      const cs = getComputedStyle(m)
+      const r = m.getBoundingClientRect()
+      const inner = {
+        x: r.x + parseFloat(cs.paddingLeft),
+        y: r.y + parseFloat(cs.paddingTop),
+        right: r.right - parseFloat(cs.paddingRight),
+        bottom: r.bottom - parseFloat(cs.paddingBottom)
+      }
+      const pageEl = document.querySelector('.wb-page') as HTMLElement
+      const flow = document.querySelector('.wb-flow')!.getBoundingClientRect()
+      return {
+        pagePad: getComputedStyle(pageEl).padding,
+        flowTop: Math.round(flow.y - inner.y),
+        flowLeft: Math.round(flow.x - inner.x),
+        flowRight: Math.round(inner.right - flow.right),
+        flowBottom: Math.round(inner.bottom - flow.bottom),
+        overflow: pageEl.scrollHeight - pageEl.clientHeight
+      }
+    })
+
+    expect(ed.pagePad, '页面容器不应再有 padding').toBe('0px')
+    expect(ed.flowLeft).toBe(base.left)
+    expect(ed.flowTop).toBe(base.top)
+    // 画布左右与标准页同宽，并且竖向吃满剩余高度（不再靠 calc(100vh - 220px) 猜）
+    expect(ed.flowLeft).toBe(base.left)
+    expect(ed.flowRight).toBe(base.left)
+    expect(Math.abs(ed.flowBottom)).toBeLessThanOrEqual(1)
+    expect(ed.overflow).toBeLessThanOrEqual(1)
   })
 })
