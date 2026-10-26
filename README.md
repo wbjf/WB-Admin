@@ -151,9 +151,10 @@ configureAiTransport(createHttpTransport({ baseURL: '/api' }))
 
 ### 流程图编辑器
 
-`src/components/FlowEditor/`：基于 LogicFlow 的可配置流程 / 工艺流程编辑器。演示页 `/flow/index`（列表）→ 任一行的「编辑」，编辑页顶部有一条配置演示条，可现场切档位、关功能、换元件库。
+`src/components/FlowEditor/`：基于 LogicFlow 的可配置流程 / 工艺流程编辑器。演示页 `/flow/index`（列表）→ 任一行的「编辑」。
 
 - **三层配置**：`preset`（mini / standard / pro）→ `configureFlowEditor()` 全局默认 → 单实例 `:config`。合并只在 `resolveConfig()` 里做一次，内部统一读 `cfg.xxx`。
+- **配置写在代码里，不在页面上摆开关**：编辑页只保留「返回列表」（放进 `toolbar-left` 插槽），换档位 / 关功能就改 `editor.vue` 的 `editorConfig` 或 `src/config/flow.ts`。
 - **元件库可换**：`palette.groups` 整体替换 / `extend` 增补 / `exclude` 剔除；不在库里的 `type` 不注册节点，旧图里的未知类型降级为通用节点并提示。
 - **草稿**：IndexedDB（`wb-admin-flow`）+ 500ms 防抖 + 卸载 flush；重进时与当前图比对后才问「恢复 / 丢弃」。
 - **可选能力按需加载**：`ai` / `collab` / `simulate` 走动态 `import()`，开关关掉时对应 chunk 不会被请求。
@@ -173,7 +174,7 @@ configureAiTransport(createHttpTransport({ baseURL: '/api' }))
 - 内置 mock 服务（零依赖中间件，可开关）
 - Dockerfile + Nginx（SPA history 回退 + gzip）+ docker-compose
 - GitHub Actions：lint / typecheck / unit / build / e2e
-- Vitest 单测（131 例）+ Playwright E2E
+- Vitest 单测（133 例）+ Playwright E2E（56 例，含本机 Chrome 真实渲染）
 
 ### 国际化
 中英文双语（`vue-i18n` + Element Plus locale 联动），文案集中在 `src/locales/lang/*`，运行时切换。
