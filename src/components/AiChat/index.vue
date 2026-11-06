@@ -30,8 +30,7 @@ import {
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/modules/settings'
 import { useUserStore } from '@/stores/modules/user'
-import { MAX_FILES, useAiChat } from './useAiChat'
-import { formatSize, MAX_FILE_SIZE_MB } from './transport'
+import { formatSize, MAX_FILES, MAX_FILE_SIZE_MB, useAiChat } from './useAiChat'
 import type { ChatAttachment, ChatMessage, ChatSession } from '@/types'
 
 defineOptions({ name: 'AiChat' })
@@ -45,9 +44,13 @@ defineOptions({ name: 'AiChat' })
  */
 const MdPreview = defineAsyncComponent({
   loader: async () => {
-    const mod = await import('md-editor-v3')
+    // mermaid 一起懒加载：AI 回复里的 ```mermaid 代码块由 md-editor-v3 渲染成流程图。
+    // 不配 instance 的话它会去 unpkg CDN 拉 mermaid 脚本 —— 国内拉不动，
+    // 图表静默退化成代码文本。本地注入体积约 1MB，只在首个 mermaid 场景下载一次。
+    const [mod, mermaid] = await Promise.all([import('md-editor-v3'), import('mermaid')])
     // 样式跟着预览组件一起懒加载，避免首屏多一份 200KB 的 css
     await import('md-editor-v3/lib/style.css')
+    mod.config({ editorExtensions: { mermaid: { instance: mermaid.default } } })
     return mod.MdPreview
   },
   // 加载失败降级成纯文本：宁可排版差一点，也不能让整条回复变成空白
@@ -146,6 +149,9 @@ watch(
  * 于是「按回车确认候选词」会被当成发送（实测打两个字发一条）。
  * 所以额外用 composition 生命周期记状态：组合中不发；刚上屏的 IME_GUARD_MS 内那一发也吞掉。
  * 窗口只拦第一次 —— 命中后清零，用户上屏完马上再按 Enter 仍能正常发送。
+ *
+ * 模板上只挂 `@keydown.enter`：裸 `@keydown` 会把 Backspace / Delete / 方向键一起送进来，
+ * 草稿非空时它们同样满足 canSend，「输入一段文字再按退格」会被当成发送。
  */
 const IME_GUARD_MS = 100
 let composing = false
@@ -784,7 +790,7 @@ function timeText(ts: number): string {
           :placeholder="t('ai.placeholder')"
           class="wb-ai__input"
           data-test="ai-input"
-          @keydown="onEnter"
+          @keydown.enter="onEnter"
           @compositionstart="onCompositionStart"
           @compositionend="onCompositionEnd"
         />
@@ -1244,6 +1250,12 @@ function timeText(ts: number): string {
       &:last-child {
         margin-bottom: 0;
       }
+    }
+
+    /* mermaid 图随气泡宽度缩放；原始 SVG 带写死的宽高，不约束会横向撑破 */
+    :deep(.md-editor-mermaid svg) {
+      max-width: 100%;
+      height: auto;
     }
   }
 

@@ -357,33 +357,6 @@ export interface ChatSession {
   updatedAt: number
 }
 
-export interface AiChatRequest {
-  model: string
-  /** 只传纯文本历史，附件单独走 files —— 避免把 File 塞进 JSON */
-  messages: { role: ChatRole; content: string }[]
-  files?: ChatAttachment[]
-  /** 界面语言，供 mock / 后端决定回复语种 */
-  locale?: string
-  signal?: AbortSignal
-}
-
-export interface AiChatHandlers {
-  /** 流式增量 */
-  onDelta(chunk: string): void
-  onError?(err: unknown): void
-}
-
-/**
- * 传输层：把「怎么拿到模型列表 / 怎么拿到回答」跟界面彻底解耦。
- * 默认实现是纯前端模拟（不依赖任何后端，静态部署也能演示），
- * 接真实服务时 `configureAiTransport(createHttpTransport())` 换掉即可。
- */
-export interface AiChatTransport {
-  listModels(): Promise<AiModel[]>
-  /** 完成后 resolve；被 abort 时应当直接结束（不 reject） */
-  chat(req: AiChatRequest, handlers: AiChatHandlers): Promise<void>
-}
-
 /* ────────────────── 流程图（FlowEditor） ────────────────── */
 
 /** 流程图元信息 */

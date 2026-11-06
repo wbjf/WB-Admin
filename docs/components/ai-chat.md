@@ -1,28 +1,28 @@
 # AiChat AI 对话助手
 
-全局 AI 对话面板：顶栏 ✨ 图标或 `Ctrl + I` 唤起，**多会话 + 分组管理**（新建 / 切换 / 重命名 / 删除 / 按分组归类），流式回复、附件随消息发送、模型切换、历史按登录人持久化，支持全屏与拖动调整输入框高度。
+全局 AI 对话面板：顶栏 ✨ 图标或 `Ctrl + I` 唤起，**多会话 + 分组管理**（新建 / 切换 / 重命名 / 删除 / 按分组归类），附件随消息发送、模型切换、历史按登录人持久化，支持全屏与拖动调整输入框高度；回复中的 ` ```mermaid ` 代码块渲染成流程图。
 
-**默认不依赖任何后端。** 传输层默认是浏览器内的模拟实现（打字机式吐字），所以静态部署也能完整演示；接真实模型只需在启动时换一个 transport，界面代码一行不用改。
+**直连 Ollama**（`/api/tags` + `/api/chat`，非流式），接口与其他业务接口一样走 axios（`src/api/ai.ts`）。
 
 ![AI 对话面板](./screenshot-ai-chat.png)
 
 本页给两类人看：
 
 - 前端：从零复刻这个面板，或把它接到自己的项目里；
-- 后端：需要提供哪两个接口、字段长什么样、SSE 怎么吐、有哪些服务端职责不能省。
+- 后端：当前直连 Ollama（`/api/tags` + `/api/chat`，非流式 JSON）；文末另附一份「换成自研后端」的接口契约供参考。
 
 ## 目录与职责
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/components/AiChat/transport.ts` | 传输层：`AiChatTransport` 接口、本地模拟实现、HTTP/SSE 实现、全局装配点 `configureAiTransport()` |
-| `src/components/AiChat/useAiChat.ts` | 全局会话状态（模块级单例）：会话与分组、发送 / 停止 / 清空 / 附件校验 / 历史持久化 |
+| `src/api/ai.ts` | 接口层：Ollama 的 `/api/tags`（模型列表）与 `/api/chat`（对话），与其他接口一样走 axios |
+| `src/components/AiChat/useAiChat.ts` | 全局会话状态（模块级单例）：会话与分组、发送 / 停止 / 清空 / 附件校验 / 历史持久化 / 模型列表归一化 |
 | `src/components/AiChat/index.vue` | 弹窗 UI：会话侧栏、消息列表、Markdown 渲染、附件区、模型选择、拖动条 |
 | `src/layouts/components/Navbar/index.vue` | 顶栏入口图标 |
 | `src/layouts/index.vue` | 挂载弹窗 + `Ctrl + I` 快捷键 |
-| `src/types/index.ts` | `AiModel` / `ChatMessage` / `ChatAttachment` / `ChatGroup` / `ChatSession` / `AiChatRequest` / `AiChatHandlers` / `AiChatTransport` |
-| `src/mock/index.ts` | `GET /ai/models`、`POST /ai/chat` 的联调占位实现 |
-| `test/unit/ai-chat.spec.ts` | 传输层解析、流式拼装、abort、附件限额、历史隔离、会话分组与 v1 迁移 |
+| `src/types/index.ts` | `AiModel` / `ChatMessage` / `ChatAttachment` / `ChatGroup` / `ChatSession` |
+| `src/mock/index.ts` | 业务数据 mock（登录、列表、字典、设备树、看板等）；**不含 AI 接口** —— AI 直接打真实 Ollama |
+| `test/unit/ai-chat.spec.ts` | 请求体字段、abort 收尾、附件限额、历史隔离、会话分组与 v1 迁移 |
 | `test/e2e/ai-chat.spec.ts` | 真实浏览器交互回归（含新建对话、建组、移动、折叠、刷新保持） |
 
 ## 数据流
@@ -34,13 +34,12 @@
        ├─ 先取历史（必须在推入本条之前取，否则最后一条会重复发）
        ├─ 本地插入 user 消息 → 清空输入框与待发附件 → 首条消息顺便生成标题
        ├─ 插入 assistant 占位消息（pending: true）
-       └─ transport.chat(req, { onDelta })
-            ├─ onDelta(chunk) → 追加到 sid 的占位消息 → 界面增量渲染
-            ├─ resolve        → pending = false
-            └─ throw          → error = true + composer 上方错误条
+       └─ await aiApi.chat(body, signal)     // axios，等模型生成完一次性返回
+            ├─ resolve → 把 message.content 写进 sid 的占位消息 → pending = false
+            └─ reject → error = true + composer 上方错误条（中断不算失败）
 ```
 
-界面只认 `AiChatTransport` 这个接口，不知道底下是模拟还是 HTTP/SSE。**这是整个设计的支点**：换后端、换网关、换厂商 SDK，都只动 transport。
+界面只认 `aiApi` 这两个方法，接口协议（Ollama / 自研网关 / 厂商 SDK）全部收敛在 `src/api/ai.ts` 一处。
 
 ---
 
@@ -76,7 +75,7 @@ export interface ChatMessage {
   model?: string
   attachments?: ChatAttachment[]
   time: number
-  pending?: boolean   // 流式输出中
+  pending?: boolean   // 生成中（请求未返回）
   error?: boolean     // 本条生成失败
 }
 
@@ -100,45 +99,20 @@ export interface ChatSession {
 }
 ```
 
-### 2. 抽传输层
-
-只暴露两个方法，增量只从 `onDelta` 出去：
+### 2. 接口层只有两个方法
 
 ```ts
-export interface AiChatTransport {
-  listModels(): Promise<AiModel[]>
-  /** 完成后 resolve；被 abort 时应当尽快结束 */
-  chat(req: AiChatRequest, handlers: AiChatHandlers): Promise<void>
-}
-
-export interface AiChatRequest {
-  model: string
-  messages: { role: ChatRole; content: string }[]  // 只传纯文本历史
-  files?: ChatAttachment[]                          // 附件单独走，不塞进 JSON
-  locale?: string                                   // 界面语言，后端可据此决定语种
-  signal?: AbortSignal
-}
-
-export interface AiChatHandlers {
-  onDelta(chunk: string): void
-  onError?(err: unknown): void
+// src/api/ai.ts —— 与其他接口一样走 axios（http 封装），这里只声明、不含逻辑
+export const aiApi = {
+  tags: () => http.get<OllamaTagsBody>('/tags', undefined, { showError: false }),
+  chat: (body: OllamaChatBody, signal?: AbortSignal) =>
+    http.post<OllamaChatResult>('/chat', body, { showError: false, repeatable: true }, { signal, timeout: 0 })
 }
 ```
 
-本地模拟实现只有一件事：把一段固定 markdown 按 6 个字符一片吐出来，两片之间 `setTimeout(24ms)`。注意它的等待是**可中断**的 —— abort 后立即 resolve，否则点了停止还要等完当前这一片，手感就是「停止按钮慢半拍」。
+两个 meta 要注意：`showError: false` 让失败只体现在面板的红字里（不弹全局 ElMessage）；`repeatable: true` 让「停止」按钮的 `signal` 生效 —— 否则会被防重复提交的 controller 覆盖。`timeout: 0` 是因为实例默认 30s 不够模型生成。
 
-全局装配点：
-
-```ts
-let transport: AiChatTransport = createMockTransport()
-
-export function configureAiTransport(next: AiChatTransport): void {
-  transport = next
-}
-export function getAiTransport(): AiChatTransport {
-  return transport
-}
-```
+逻辑（打开面板时拉模型列表、点发送时调 chat）全部在 `useAiChat` 里：单测直接 spy 掉 `aiApi.chat` 就能测「中断收尾」这类状态机，e2e 则在浏览器层用 `page.route` 桩掉两条接口。
 
 ### 3. 会话状态做成模块级单例
 
@@ -202,11 +176,11 @@ v2 的存储形态（一个 `localStorage` key 装下某个人的全部会话）
 三条容易写错的约定：
 
 1. **只有一个数据源。** `messages` 是 `computed(() => sessions[activeId].messages)`，不是另一份 `ref`。所有写入走 `updateSession(id, fn)`；数组里的对象原地改不会触发依赖它的 computed（表现是「点了没反应」）。
-2. **按会话 id 写回，不认「当前会话」。** `send()` 进来就把 `sid` 固定住，流式回调往这个 `sid` 追加，所以生成中切到别的会话，回答仍然落回原来那条；`sending` 也是按 `sid` 判断，新会话不会错误地显示「停止」。
+2. **按会话 id 写回，不认「当前会话」。** `send()` 进来就把 `sid` 固定住，回复写回这个 `sid`，所以生成中切到别的会话，回答仍然落回原来那条；`sending` 也是按 `sid` 判断，新会话不会错误地显示「停止」。
 3. **删除分组不删会话。** 组内会话 `groupId` 置空回到未分组；读取时若 `groupId` 指向已不存在的分组，也自动落回未分组，避免出现谁也看不见的孤儿会话。
 4. **新会话一律落在未分组，绝不继承当前会话的分组。** 这条踩过一次：最初的实现是「在哪个组里点新建就留在哪个组」，想着贴近意图，实际用起来很别扭 —— 手动把几条对话归完之后，接下来**新建的全自动钻进那个组**，还得再手动挪出来。归组是明确动作，只由「移动到分组」触发。唯一例外是当前会话本来就是空的（还没发过消息），此时「新建」复用这一条并把它移回未分组 —— 空会话本来就不该占着分组。
 
-**落盘时机**：结构类操作（新建 / 移动 / 改名 / 建组 / 折叠）走 `persistNow()` 同步写；只有流式增量走 300ms 防抖。这不是性能取舍，是正确性：防抖没触发就刷新，分组归属会**静默丢回未分组**，界面看起来像「组里的对话自己跑出来了」。另外注册了 `pagehide` / `beforeunload` / `visibilitychange(hidden)` 兜底，把防抖里挂着的那次写掉。
+**落盘时机**：结构类操作（新建 / 移动 / 改名 / 建组 / 折叠）走 `persistNow()` 同步写；对话的常规落盘走 300ms 防抖。这不是性能取舍，是正确性：防抖没触发就刷新，分组归属会**静默丢回未分组**，界面看起来像「组里的对话自己跑出来了」。另外注册了 `pagehide` / `beforeunload` / `visibilitychange(hidden)` 兜底，把防抖里挂着的那次写掉。
 
 **v1 → v2 迁移**：老版本只有 `{v:1, model, messages}`。读到它就包成一条会话（标题取首条消息）放进未分组。少了这一步，用户升级后会看到一个空面板，以为记录全丢了。
 
@@ -224,14 +198,19 @@ v2 的存储形态（一个 `localStorage` key 装下某个人的全部会话）
 // Markdown 渲染：md-editor-v3 体积不小，异步加载 —— 只有开过面板的人才下载这份 chunk
 const MdPreview = defineAsyncComponent({
   loader: async () => {
-    const mod = await import('md-editor-v3')
+    // mermaid 一起懒加载并本地注入：不配 instance 的话 md-editor 会去 unpkg CDN
+    // 拉 mermaid 脚本（国内拉不动），```mermaid 代码块静默退化成代码文本
+    const [mod, mermaid] = await Promise.all([import('md-editor-v3'), import('mermaid')])
     await import('md-editor-v3/lib/style.css')
+    mod.config({ editorExtensions: { mermaid: { instance: mermaid.default } } })
     return mod.MdPreview
   },
   // 加载失败降级成纯文本：宁可排版差，也不能让整条回复变空白
   errorComponent: PlainTextFallback
 })
 ```
+
+> mermaid 版本对齐 md-editor-v3 内部默认的 11.x（`^11.3.0`）。渲染失败的代码块（模型输出了非法语法）会保留原文，不会影响同一条回复里的其他内容；SVG 用 `.md-editor-mermaid svg { max-width: 100%; height: auto }` 压在气泡宽度内。
 
 ```ts
 /*
@@ -271,7 +250,11 @@ function onEnter(e: KeyboardEvent): void {
 }
 ```
 
-模板上要挂 `@keydown="onEnter"`、`@compositionstart="onCompositionStart"`、`@compositionend="onCompositionEnd"`。`el-input` 内部是 `mergeProps(attrs, { onCompositionstart: 自己的 })`，两者会合并成数组、**不会互相覆盖**，所以不需要绕到原生 `addEventListener`。
+模板上要挂 `@keydown.enter="onEnter"`、`@compositionstart="onCompositionStart"`、`@compositionend="onCompositionEnd"`。`el-input` 内部是 `mergeProps(attrs, { onCompositionstart: 自己的 })`，两者会合并成数组、**不会互相覆盖**，所以不需要绕到原生 `addEventListener`。
+
+**`.enter` 这个修饰符不能省**：裸 `@keydown` 会把 Backspace / Delete / 方向键统统送进来，只要草稿非空就满足 `canSend`，于是「输入一段文字再按退格」直接把消息发了出去（更糟的是 `preventDefault()` 抢在前面，非输入法状态下连打第二个字母都会把第一个字发掉、第二个字还插不进去）。
+
+**composition 那两个钩子也不能省**：`.enter` 只按 `event.key` 过滤，而 CDP 真实 IME 时序下实测三种回车**全是 `key: 'Enter'` / `keyCode: 13`** —— 组合中的那发 `isComposing` 是 `true`，但「上屏（compositionend）紧跟的那发」`isComposing` 已经是 `false`，`.enter` 会照常放过它，只能靠 `onCompositionEnd` 记下的 `composeEndedAt` 时间窗拦。实测把这两个钩子摘掉，`test/e2e/ai-chat.spec.ts` 的「输入法上屏那一下的回车不发送」立刻变红。
 
 **为什么必须用时间窗**：`compositionend` 之后紧跟的那次 `keydown`，浏览器给的 `isComposing` 是 `false`（组合已经结束了），但它是同一发回车、不是用户新按的。除了时间窗没有可靠的同步判据，`keyCode === 229` 只能补一部分输入法。
 
@@ -317,83 +300,51 @@ if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') {
 
 ---
 
-## 二、前后端如何对接
+## 二、接口怎么接
 
-### 方式 A：换成内置 HTTP transport（先试这个）
+### 现状：直连 Ollama，接口定义在 `src/api/ai.ts`
 
-```ts
-// src/main.ts，放在 app.mount 之前即可
-import { configureAiTransport, createHttpTransport } from '@/composables'
+只有两条，与其他业务接口一样走 axios（`http` 封装），**非流式**：等模型生成完一次性返回全文（axios 要等响应体收完才 resolve，拿不到流式增量，所以 `stream: false`）：
 
-configureAiTransport(
-  createHttpTransport({
-    // 默认取 import.meta.env.VITE_API_PREFIX（dev=/api，prod=/prod-api）
-    baseURL: import.meta.env.VITE_API_PREFIX ?? '/api',
-    modelsPath: '/ai/models',
-    chatPath: '/ai/chat'
-  })
-)
-```
+| 方法 | 路径 | 用途 | 返回 |
+| --- | --- | --- | --- |
+| GET | `/api/tags` | 模型列表 | `{ models: [{ name, model, details }] }` |
+| POST | `/api/chat` | 对话 | `{ message: { role, content }, done: true }` |
 
-接口路径跟你的后端不一致时，只改这两个 `path`，不要复制一份 transport 出来改。
+`/api/chat` 请求体：`{ model, messages, stream: false, keep_alive: '30m', options: { num_ctx: 8192 } }`；回复全文在 `message.content`，出错时响应体是 `{"error": "..."}`（axios 的 `e.response.data.error`，会带进面板红字）。
 
-### 方式 B：完全自定义 transport
-
-网关吐的格式比较特别、或者你直接用厂商 SDK / WebSocket 时，实现接口即可：
+### 路径与代理：三个必须做对的点
 
 ```ts
-import { configureAiTransport, type AiChatTransport } from '@/composables'
-
-const myTransport: AiChatTransport = {
-  async listModels() {
-    const res = await myApi.models()
-    return res.map((m) => ({ id: m.model_id, name: m.display_name, provider: m.vendor }))
-  },
-  async chat(req, { onDelta }) {
-    // 关键三点：1) 透传 req.signal，让「停止」真正断流；
-    //          2) 增量只通过 onDelta 吐出；
-    //          3) 正常结束就 resolve，不要为了「结束」抛错。
-    const stream = await sdk.chat.stream(
-      { model: req.model, messages: req.messages, files: req.files?.map((f) => f.file) },
-      { signal: req.signal }
-    )
-    for await (const evt of stream) {
-      if (req.signal?.aborted) return
-      if (evt.delta) onDelta(evt.delta)
-    }
-  }
+// vite.config.ts
+proxy: {
+  '/api/chat': { target: env.VITE_OLLAMA_TARGET, changeOrigin: true },  // ① 必须排在通用前缀前
+  '/api/tags': { target: env.VITE_OLLAMA_TARGET, changeOrigin: true },  // ② 不能加 rewrite
+  [env.VITE_API_PREFIX || '/api']: { /* 其余接口 → 通用后端 */ }
 }
-
-configureAiTransport(myTransport)
 ```
 
-### 方式 C：只替换一半
+1. **顺序**：connect 按声明顺序取第一个命中的规则，通用 `/api` 写在前面会把这两条抢走。
+2. **不能 rewrite**：Ollama 自己的路由就带 `/api`，剥掉就变成 `/chat` → 404。
+3. **mock 要放行**：mock 中间件挂在 `configureServer` 上、**排在 proxy 之前**，未命中的路由返回 `{code:200,data:null}` + HTTP 200 —— 不 bypass 的话请求「成功」了但一个字都没到模型。配置见 `mockServer({ bypass: ['/api/chat', '/api/tags'] })`。
 
-```ts
-const mock = createMockTransport()
-configureAiTransport({
-  listModels: async () => (await fetch('/api/ai/models').then((r) => r.json())).data,
-  chat: mock.chat.bind(mock) // 回答仍用模拟，先把模型列表对接起来
-})
-```
+Ollama 在别的机器上时：`VITE_OLLAMA_TARGET=http://<服务器>:11434`，服务端用 `OLLAMA_HOST=0.0.0.0:11434` 启动并放行端口，改完**重启 dev server**（`server.proxy` 只在启动时读取）。不需要配 `OLLAMA_ORIGINS` —— 浏览器请求的是同源 `/api`，跨域发生在 node 侧。
+
+### 换成别的后端
+
+网关吐的格式不一样时，改 `src/api/ai.ts` 里 `chat` / `tags` 两个函数体即可，`useAiChat` 与界面不用动。要注意三点：① 透传 `signal`，让「停止」真正断请求；② `meta` 里带 `showError: false, repeatable: true`；③ 若网关返回的是流式（SSE / NDJSON），axios 拿不到增量，得换回 `fetch` + `res.body.getReader()`（或 axios 的 `onDownloadProgress`），并把回复改回逐段写入。
 
 ### 鉴权与请求头
 
-HTTP transport 走的是**原生 `fetch`，不经过 `utils/request.ts` 的 axios 拦截器**，所以请求头是单独拼的（`authHeaders()`），目前带三个，与主请求层同名同值：
-
-| Header | 来源 | 缺失后果 |
-| --- | --- | --- |
-| `Authorization: Bearer <token>` | `getToken()` | 401 |
-| `X-Tenant-Id` | `getTenantId()` | 多租户后端按「无租户」处理：403 或读到别的租户数据 |
-| `Accept-Language` | `localStorage['wb-admin-locale']` | 后端无法按界面语言回话 |
-
-> 加自定义头（`X-Trace-Id`、`X-Client-Version` 等）改 `transport.ts` 的 `authHeaders()` 一处即可。
-> 若后端用 Cookie 鉴权，需要 `credentials: 'include'`，这两处 `fetch` 都要加。
-> 另外记住：`fetch` 不会像 axios 那样自动重试 / 弹全局错误提示，失败提示在面板里由 `lastError` 呈现。
+走 axios 就意味着**自动经过 `utils/request.ts` 的拦截器**：`Authorization` / `X-Tenant-Id` / `Accept-Language` 三个头与其他接口同名同值，401 也会进无感刷新流程。要注意的一点：Ollama 本身不认这些头也不返回 401，所以直连时无副作用；如果网关会返回 401 并被刷成登出，给这两条接口加 `meta.auth: false`。
 
 ---
 
-## 三、后端应该提供什么
+## 三、附：换成自研后端时的接口契约（可选）
+
+> 当前代码走的是 Ollama 协议（`GET /api/tags`、`POST /api/chat`，非流式 JSON + axios）。
+> 下面这套 `multipart + SSE` 契约是「把 AI 换成自研后端」时的参考：改 `src/api/ai.ts` 的两个函数体，
+> 同时把 `vite.config.ts` 里那两条 Ollama 代理规则换成你自己的网关地址。
 
 ### 接口 1：`GET /ai/models`
 
@@ -435,7 +386,7 @@ HTTP transport 走的是**原生 `fetch`，不经过 `utils/request.ts` 的 axio
 
 > `messages` 是字符串不是 JSON 对象 —— multipart 里没法嵌对象，后端拿到后需要 `JSON.parse`。解析失败请直接回 400，别当空历史处理。
 
-#### 响应 A：SSE 流式（推荐）
+#### 响应 A：SSE 流式（当前前端未解析 SSE，恢复流式时参考）
 
 ```http
 HTTP/1.1 200 OK
@@ -468,7 +419,7 @@ data: [DONE]
 { "code": 200, "msg": "ok", "data": { "content": "完整回复文本" } }
 ```
 
-`data` 直接是字符串也兼容。前端会自动降级为一次性输出，只是没有打字机效果 —— 联调阶段先用这个，跑通再改 SSE。
+`data` 直接是字符串也兼容。当前实现（axios 非流式）用的就是这种方式 —— 回复整段一次性出现，没有打字机效果。
 
 ### 服务端职责清单
 
@@ -490,23 +441,12 @@ data: [DONE]
 
 | 场景 | 建议返回 | 前端表现 |
 | --- | --- | --- |
-| 参数不对 / `messages` 解析失败 | `400` + `{code:400,msg:'messages 格式错误'}` | 红字显示 `HTTP 400`（当前实现只取状态码） |
-| 未登录 / token 过期 | `401` | 红字 `HTTP 401`，需要自行接登录续期 |
-| 无权限 / 额度不足 | `403` + `{code:403,msg:'本月额度已用完'}` | 红字 `HTTP 403` |
-| 流式中途出错 | 先发一条错误事件再断开（见下） | 保留已生成内容，气泡标红 |
+| 参数不对 / `messages` 解析失败 | `400` + `{error:'messages 格式错误'}` | 红字显示原因（取 `response.data.error`，取不到则显示 axios 的状态码消息） |
+| 未登录 / token 过期 | `401` | 走 axios 拦截器的无感刷新流程；刷新失败才登出 |
+| 无权限 / 额度不足 | `403` + `{error:'本月额度已用完'}` | 红字 `403 本月额度已用完` |
+| 生成中途出错 | 直接回非 2xx + `{"error":"..."}` | 气泡标红，红字带原因 |
 
-`createHttpTransport` 会校验响应体里的 `code`（200 / 0 为成功），业务错误即使 HTTP 200 也会被判失败 —— 否则界面会「回复了但一个字都没有」，比报错更难查。**建议同时用正确的 HTTP 状态码**，因为流式请求一旦发出 200 就无法再改。
-
-流中途异常的两种选择：
-
-```ts
-// 1) 直接断开连接：前端 reader.read() 抛错 → 气泡标红，保留已生成内容
-res.destroy()
-// 2) 先把错误当成一段文本吐出去，再正常结束（用户能看到原因，但不标红）
-res.write(`data: ${JSON.stringify({ content: '\n\n> 生成中断：上游超时' })}\n\n`)
-res.write('data: [DONE]\n\n')
-res.end()
-```
+非 2xx 时 axios reject，面板红字取 `e.response.data.error`（如 `model 'xxx' not found`）—— 把原因放进 body，别只给状态码，否则用户分不清是模型没拉还是路径写错。
 
 ### 最小可运行后端（Node + Express）
 
@@ -593,6 +533,7 @@ location /prod-api/ai/ {
 | 分组标题 | 点击折叠展开并持久化；悬停 `⋯`：重命名分组 / 删除分组（组内对话回落到未分组） |
 | 侧栏底部「新建分组」 | 输入名称建组；重名直接复用已有分组 |
 | `Enter` | 发送。输入法组合中、上屏那一下（100ms 内）、按住 `Shift` / `Ctrl` / `Alt` 时都不发送 |
+| `Backspace` / `Delete` / 方向键 | 只做编辑，不发送（草稿非空也不会误发） |
 | `Shift + Enter` | 换行 |
 | 左下「添加文件」 | 选文件（图片、pdf、txt、md、json、csv、xlsx、docx、pptx、zip），单文件 ≤ 10MB，最多 5 个；超限的会被忽略并提示 |
 | 右下模型下拉 | 切换模型，只影响之后的发送；选择会记在当前会话上，切回来仍是它 |
@@ -683,8 +624,8 @@ function askAboutTicket(row: { id: string; title: string }) {
 
 | 位置 | 常量 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `transport.ts` | `MAX_FILE_SIZE_MB` | `10` | 单文件上限，前端校验；**后端必须再校验一次** |
-| `transport.ts` | `DEFAULT_MODELS` | 5 个 | 模型接口不可用时的兜底清单（只用于占位，不代表真实可用） |
+| `useAiChat.ts` | `MAX_FILE_SIZE_MB` | `10` | 单文件上限，前端校验；**后端必须再校验一次** |
+| `useAiChat.ts` | `DEFAULT_MODELS` | 1 条 | 模型接口不可用时的兜底（`VITE_OLLAMA_MODEL` 可配，须与服务端实际存在的一致） |
 | `useAiChat.ts` | `MAX_FILES` | `5` | 单次最多附件数 |
 | `useAiChat.ts` | `HISTORY_LIMIT` | `100` | **每个会话**保留的消息条数 |
 | `useAiChat.ts` | `SESSION_LIMIT` | `30` | 最多保留的会话数，按最近使用截断 |
@@ -701,16 +642,16 @@ function askAboutTicket(row: { id: string; title: string }) {
 
 ## 六、常见坑
 
-1. **打包部署后点发送就 404。** 默认的 `createHttpTransport()` 会请求 `/ai/chat`，而仓库的 mock 中间件**只在 dev server 里存在**，静态产物里一个请求都发不出去。所以默认 transport 是浏览器内模拟 —— 这也是为什么这个面板在 GitHub Pages 上能直接演示。要接真后端，别忘了一起配 `baseURL` 与代理。
+1. **`/api/chat` 明明配了代理却没生效。** 先看 mock 中间件：它挂在 `configureServer` 上、排在 proxy 之前，未命中的路由返回 `{code:200,data:null}` + HTTP 200。实测 `POST /api/chat` 拿到的是 `{"code":200,"msg":"操作成功","data":null}`，dev 日志里连一条 proxy 记录都没有。两条 AI 接口必须在 `mockServer({ bypass })` 里放行。另外 `server.proxy` 只在 `vite dev` 存在，`preview` / nginx / 静态托管里都没有。
 2. **`el-input` 的 `autosize` 会和拖动改高度打架。** 它把高度写成内联样式且只在 autosize 为真时重算，关掉之后那份 `height/min-height` 仍留在元素上（实测拖到 138px，元素死守 58px），CSS 变量与 `!important` 都没用。现在高度全部自己算。
 3. **`<style scoped>` 管不到 `el-dialog` 的根元素。** `el-dialog` 的根是 `Teleport`，`class="wb-ai"` 挂上去了，`data-v-*` 没挂上去 —— 所有 `.wb-ai[data-v-x] …` 规则**静默失效**（不报错、控制台干净）。这类「dialog 自己」的规则一律写 `:global()`，且**不能嵌在 `.wb-ai { }` 里**，否则会被拼成 `.wb-ai[data-v-x] .wb-ai.is-fullscreen`。判据：`el.matches('.wb-ai[data-v-x]')` 为 `false` 就说明整段没生效。
 4. **e2e 里 `[data-test=ai-input] textarea` 选不到东西。** `el-input` 会把 `data-test` 透到内层 `textarea` 上，带这个属性的就是 textarea 自己，它里面没有 textarea。直接 `[data-test=ai-input]` 即可。
 5. **模型列表还没回来就发送 → `model` 为空 → 后端 400。** 现在 `useAiChat()` 先填 `DEFAULT_MODELS[0]` 占位，`send()` 里再兜一层 `modelId || models[0]?.id`。后端仍要校验，不要假设前端一定传对。
 6. **流式半成品不能落盘。** 刷新后拿到的 `pending` 消息永远停在「生成中」，因为增量早就没了。
 7. **汉字会被切两半。** SSE 必须用 `TextDecoder(..., { stream: true })` 增量解码，并按 `\n\n` 缓冲后再切行；直接对每个 chunk 调 `decode()` 会出现乱码。
-8. **dev 的 mock 接口只解析 JSON。** `POST /ai/chat` 是 multipart，mock 中间件会把请求体读成原始字符串（`JSON.parse` 失败就返回字符串），于是 `messages` 为空、只能回「(空)」。联调 multipart 请连真实后端，或先给 mock 补一个 multipart 解析器。
+8. **AI 接口不要挂在 dev mock 上。** 早期 `src/mock/index.ts` 里放过 `GET /ai/models`、`POST /ai/chat` 两条占位，问题有二：① mock 中间件只解析 JSON，multipart 的 `messages` 会退化成原始字符串；② 它注册在 proxy 之前且未命中返回 HTTP 200，接真后端时请求会被「兜」成一个成功但空的响应。**现已全部移除**，AI 走 `src/api/ai.ts` → `/api/chat`、`/api/tags`。
 9. **附件回放只有元信息。** 历史里的附件不带 `File`，重发时传的是 `fileUrls`（若后端当时回写了 url），否则只能展示「发过什么」。
-10. **失败没有全局提示。** `fetch` 不经过 axios 拦截器，401 不会触发登录续期，错误只体现在面板里的红字。生产环境建议在 transport 里统一处理 401 跳登录。
+10. **失败没有全局提示，但 401 会走续期。** 两条 AI 接口带 `showError: false`，错误只体现在面板红字，不弹全局 ElMessage；但走 axios 意味着 401 会进无感刷新流程 —— 直连 Ollama 无副作用（它不返回 401），换成会 401 的网关时若不想续期，给接口加 `meta.auth: false`。
 11. **整对象落盘会把 `File` 写成 `{}`。** 单会话时是手工挑字段，所以没暴露；改多会话后如果直接 `JSON.stringify(session)`，`File` 会变成空对象存进去 —— 读回来 `attachments[0].file` 存在但不是 File，`fetch(file)` 之类操作才炸，而且已经写进历史。落盘前必须逐字段重建消息。（这条是单测先抓到的。）
 12. **`messages` 不能既当数据源又当镜像。** 多会话下若保留一个 `messages` ref 再手动同步 sessions，总有一次忘记同步：典型症状是「切回去少一条」或「增量写到别的会话」。现在它是 `computed(() => sessions[activeId].messages)`，唯一写入口是 `updateSession()`。
 13. **e2e 别按位置点顶栏图标。** 加了「会话栏 / 新建对话」两个图标后，原来的 `.wb-ai__act` 第 1 个从「全屏」变成了「会话栏」，全屏用例立刻红（宽度 820 vs 820）。所有可点图标都补了 `data-test`，按语义选。
@@ -724,7 +665,7 @@ function askAboutTicket(row: { id: string; title: string }) {
 ## 七、测试
 
 ```bash
-# 单元测试（传输层、流式、abort、附件、会话与分组、v1 迁移）
+# 单元测试（请求体字段、abort、附件、会话与分组、v1 迁移）
 npx vitest run test/unit/ai-chat.spec.ts
 
 # 真实浏览器交互（需要先起 dev server）
@@ -732,8 +673,8 @@ npx vite --port 3100 --strictPort
 E2E_PORT=3100 npx playwright test test/e2e/ai-chat.spec.ts
 ```
 
-单测覆盖：模型列表返回副本（防止外部改动污染常量）、流式增量拼成完整消息、abort 后保留已生成内容且不标红、附件超限被拒、历史按 userId 隔离、`clear()` 后存储同步清空；会话与分组部分覆盖「新建对话互不干扰 + 标题取首条消息 + 排序」「空会话不重复创建」「建组 / 移动 / 改名 / 删组后会话回落未分组」「同名分组复用」「删当前会话自动切下一条」「生成中切走、增量仍写回原会话」「新会话不继承当前分组」「v1 历史迁移成一条会话」。
+单测分三块：① `/api/tags` 归一化（含过滤 embedding 模型）；② 模型列表时机（打开面板才拉、in-flight 去重、失败退回 `DEFAULT_MODELS`）；③ 会话状态机（spy 掉 `aiApi.chat` 的受控桩）：请求体字段、生成中停止不标红、接口失败把 `response.data.error` 记进红字、附件超限被拒、历史按 userId 隔离、`clear()` 后存储同步清空；会话与分组部分覆盖「新建对话互不干扰 + 标题取首条消息 + 排序」「空会话不重复创建」「建组 / 移动 / 改名 / 删组后会话回落未分组」「同名分组复用」「删当前会话自动切下一条」「生成中切走、回复仍写回原会话」「新会话不继承当前分组」「v1 历史迁移成一条会话」。
 
-e2e 覆盖：顶栏图标唤起、发送后收到流式回复且按钮变「停止」、切换模型后消息 meta 显示所选 id、附件随消息发出且待发区清空、拖动输入区上沿可调高度并双击复位、刷新后历史仍在、`Enter` 发送 / `Shift + Enter` 只换行、全屏铺满并能复原、新建对话 / 建组 / 移动 / 折叠 / 刷新后分组与会话仍在 / 在分组内点新建仍落在未分组。
+e2e 用 `page.route` 在浏览器层桩掉 `/api/tags` 与 `/api/chat`（返回真实形状的非流式 JSON），**不依赖跑测试的机器上装没装模型**；桩里把请求体的 `model` 复述回来，用来反证「切模型」真的进了请求。覆盖：顶栏图标唤起、发送后收到回复且按钮变「停止」、**回复中的 mermaid 代码块渲染成 SVG 流程图且不撑破气泡**、切换模型后消息 meta 显示所选 id、附件随消息发出且待发区清空、拖动输入区上沿可调高度并双击复位、刷新后历史仍在、`Enter` 发送 / `Shift + Enter` 只换行、**草稿非空时 `Backspace` / `Delete` 只删字不发送**、输入法上屏那一下的回车不误发送（CDP 真实 IME 时序）、全屏铺满并能复原、新建对话 / 建组 / 移动 / 折叠 / 刷新后分组与会话仍在 / 在分组内点新建仍落在未分组。
 
 > 新增断言前先确认它**能失败**（临时撤掉修复再跑一次）。只跑一次绿，永远是假绿。

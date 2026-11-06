@@ -22,6 +22,60 @@ async function openPanel(page: Page) {
   return dialog
 }
 
+/**
+ * 在浏览器层桩掉 Ollama 的两个接口。
+ *
+ * AI 面板现在直连真实接口（`src/api/ai.ts` → `/api/chat`、`/api/tags`），
+ * e2e 不能依赖跑测试的机器上装没装模型。这里用 `page.route` 把响应喂回去，
+ * 报文形状与真实 Ollama 完全一致（非流式：一条完整 JSON、`message.content` 带全文）。
+ */
+async function stubOllama(page: Page): Promise<void> {
+  await page.route('**/api/tags', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        models: [
+          {
+            name: 'qwen2.5:3b',
+            model: 'qwen2.5:3b',
+            details: { family: 'qwen2', parameter_size: '3.1B', quantization_level: 'Q4_K_M' }
+          },
+          {
+            name: 'qwen-max',
+            model: 'qwen-max',
+            details: { family: 'qwen2', parameter_size: '14B', quantization_level: 'Q4_K_M' }
+          }
+        ]
+      })
+    })
+  )
+
+  await page.route('**/api/chat', async (route) => {
+    const body = route.request().postDataJSON() as {
+      model?: string
+      messages?: { role: string; content: string }[]
+    }
+    const last = [...(body.messages ?? [])].reverse().find((m) => m.role === 'user')?.content ?? ''
+    /*
+     * 先压 500ms 再回完整回复：让「生成中 → 完成」这个状态切换能被断言
+     * （发送按钮要变成「停止」）。真实模型本来也要想几秒，
+     * 这点延迟不会让任何用例变慢到需要调超时。
+     */
+    await new Promise((r) => setTimeout(r, 500))
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      // 回复里复述请求体的 model —— 反向证明「切模型」真的坐进了 /api/chat
+      body: JSON.stringify({
+        model: body.model,
+        message: { role: 'assistant', content: `关于「${last}」，来自 ${body.model}。` },
+        done: true
+      })
+    })
+  })
+}
+
 /** 等发送按钮重新出现 = 本轮生成结束 */
 async function waitIdle(dialog: ReturnType<Page['locator']>): Promise<void> {
   await expect(dialog.locator('[data-test="ai-send"]')).toBeVisible({ timeout: 30000 })
@@ -45,6 +99,7 @@ async function dragResizer(
 
 test.describe('AI 对话面板', () => {
   test.beforeEach(async ({ page }) => {
+    await stubOllama(page)
     await login(page)
   })
 
@@ -63,6 +118,42 @@ test.describe('AI 对话面板', () => {
     await waitIdle(dialog)
     await expect(dialog.locator('.wb-ai__row.is-assistant')).toHaveCount(1)
     await expect(dialog.locator('[data-test="ai-msg-md"]')).toContainText('设备树的排序规则')
+  })
+
+  test('回复中的 mermaid 代码块渲染成流程图', async ({ page }) => {
+    // 后注册的 route 优先级更高，覆盖 beforeEach 的通用桩，只影响本用例
+    await page.route('**/api/chat', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          model: 'qwen2.5:3b',
+          message: {
+            role: 'assistant',
+            content:
+              '流程如下：\n\n```mermaid\ngraph LR\n  A[用户] --> B{已登录?}\n  B -- 是 --> C[进入首页]\n  B -- 否 --> D[跳转登录]\n```\n'
+          },
+          done: true
+        })
+      })
+    )
+
+    const dialog = await openPanel(page)
+    await dialog.locator('textarea').fill('画个登录流程图')
+    await dialog.locator('[data-test="ai-send"]').click()
+    await waitIdle(dialog)
+
+    // ```mermaid 块被替换成 md-editor-mermaid 容器 + SVG；非法语法才会退化成代码文本
+    const svg = dialog.locator('[data-test="ai-msg-md"] .md-editor-mermaid svg')
+    await expect(svg.first()).toBeVisible({ timeout: 15000 })
+    // SVG 不撑破气泡：宽度被压到容器内
+    const [svgBox, mdBox] = await Promise.all([
+      svg.first().boundingBox(),
+      dialog.locator('[data-test="ai-msg-md"]').boundingBox()
+    ])
+    expect(svgBox).not.toBeNull()
+    expect(mdBox).not.toBeNull()
+    expect(svgBox!.width).toBeLessThanOrEqual(mdBox!.width + 1)
   })
 
   test('全屏切换后铺满视口，退出后恢复原尺寸', async ({ page }) => {
@@ -133,11 +224,11 @@ test.describe('AI 对话面板', () => {
   test('切换模型 + 附件随消息一起发出', async ({ page }) => {
     const dialog = await openPanel(page)
 
-    // 切模型
+    // 切模型（选项来自 /api/tags）
     await dialog.locator('.wb-ai__model').click()
     const dropdown = page.locator('.el-select-dropdown:visible').last()
-    await dropdown.locator('.el-select-dropdown__item').filter({ hasText: '通义千问 Max' }).click()
-    await expect(dialog.locator('.wb-ai__title .el-tag')).toContainText('通义千问 Max')
+    await dropdown.locator('.el-select-dropdown__item').filter({ hasText: 'qwen-max' }).click()
+    await expect(dialog.locator('.wb-ai__title .el-tag')).toContainText('qwen-max')
 
     // 加附件（直接往 el-upload 的隐藏 input 里塞）
     await dialog.locator('.wb-ai__upload input[type="file"]').setInputFiles({
@@ -157,10 +248,10 @@ test.describe('AI 对话面板', () => {
     await expect(dialog.locator('.wb-ai__pending-item')).toHaveCount(0)
 
     await waitIdle(dialog)
-    // 消息上的模型是切换后的那个，不是默认的 gpt-4o
+    // 消息上的模型是切换后的那个，不是默认的 qwen2.5:3b
     await expect(dialog.locator('.wb-ai__meta-model').last()).toHaveText('qwen-max')
-    // 模拟回复里会复述附件名，能反向证明附件真的传到了传输层
-    await expect(dialog.locator('[data-test="ai-msg-md"]')).toContainText('需求说明.md')
+    // 桩里把请求体的 model 复述了回来 —— 反向证明「切模型」真的坐进了 /api/chat 的请求体
+    await expect(dialog.locator('[data-test="ai-msg-md"]')).toContainText('来自 qwen-max')
   })
 
   test('刷新后历史仍在，且可一键清空', async ({ page }) => {
@@ -195,6 +286,36 @@ test.describe('AI 对话面板', () => {
     await input.press('Enter')
     await expect(dialog.locator('.wb-ai__row.is-user')).toHaveCount(1)
     await expect(dialog.locator('.wb-ai__row.is-user')).toContainText('第一行')
+  })
+
+  test('草稿非空时按 Backspace / Delete 只删字，不会发送', async ({ page }) => {
+    const dialog = await openPanel(page)
+    const input = dialog.locator('textarea')
+
+    /*
+     * 这个用例守的是「keydown 监听器漏判按键」那类回归：onEnter 挂在 keydown 上，
+     * 只要草稿非空，Backspace/Delete/方向键都能满足 canSend 直接触发发送。
+     * 所以断言必须落在「输入框里的字」和「消息条数」上，不能只看有没有报错。
+     */
+    await input.fill('草稿文字')
+    await input.evaluate((el) => {
+      const ta = el as HTMLTextAreaElement
+      ta.setSelectionRange(ta.value.length, ta.value.length)
+    })
+
+    await input.press('Backspace')
+    await expect(input).toHaveValue('草稿文')
+
+    await input.evaluate((el) => {
+      const ta = el as HTMLTextAreaElement
+      ta.setSelectionRange(0, 0)
+    })
+    await input.press('Delete')
+    await expect(input).toHaveValue('稿文')
+
+    // 全程一条都没发出去
+    await expect(dialog.locator('.wb-ai__row')).toHaveCount(0)
+    await expect(dialog.locator('.wb-ai__empty-title')).toBeVisible()
   })
 
   test('输入法上屏那一下的回车不发送，停手后回车仍能发送', async ({ page }) => {

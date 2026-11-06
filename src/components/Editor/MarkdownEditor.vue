@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { MdEditor, MdPreview } from 'md-editor-v3'
+import { MdEditor, MdPreview, config } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 import hljs from 'highlight.js'
 
@@ -23,9 +23,12 @@ const value = computed({
   set: (v) => emit('update:modelValue', v)
 })
 
-MdEditor.config({
-  editorExtensions: { highlight: { instance: hljs } }
-} as any)
+/**
+ * 4.x 的全局配置是**独立的 `config()` 函数**，不是 `MdEditor.config`。
+ * 写成 `MdEditor.config(...)` 会在 setup 里抛 TypeError，整个组件渲染成
+ * `Invalid vnode type: undefined` —— 页面上只剩一个空的表单项，控制台之外毫无提示。
+ */
+config({ editorExtensions: { highlight: { instance: hljs } } })
 </script>
 
 <template>

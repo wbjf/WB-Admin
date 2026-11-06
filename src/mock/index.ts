@@ -136,32 +136,6 @@ const routes: Record<string, Handler> = {
    * 真实项目里这个接口通常就是 /tree 形式，前端少一层转换也少一处出错点。
    */
   'GET /device/area/tree': () => ok(db.deviceAreas),
-  // AI 对话：仅作为接入真实后端时的联调占位。
-  // 默认的本地模拟 transport 不发请求，所以没有这两个接口也能正常用。
-  'GET /ai/models': () =>
-    ok([
-      { id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI', context: 128000 },
-      { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', provider: 'Anthropic', context: 200000 },
-      { id: 'qwen-max', name: '通义千问 Max', provider: '阿里云', context: 32000 },
-      { id: 'deepseek-v3', name: 'DeepSeek V3', provider: 'DeepSeek', context: 64000 },
-      { id: 'glm-4', name: 'GLM-4', provider: '智谱', context: 128000 }
-    ]),
-  // 非流式响应。真实后端请改成 text/event-stream，transport 已支持 SSE 解析。
-  'POST /ai/chat': (_q, body) => {
-    let msgs = body?.messages
-    if (typeof msgs === 'string') {
-      try {
-        msgs = JSON.parse(msgs)
-      } catch {
-        msgs = []
-      }
-    }
-    const last = Array.isArray(msgs) ? [...msgs].reverse().find((m: any) => m.role === 'user') : null
-    return ok({
-      content: `### Mock 回复\n\n已收到：${last?.content || '(空)'}`,
-      model: body?.model || 'mock'
-    })
-  },
 
   'GET /system/menu/roleMenuTreeselect/:roleId': () =>
     ok(db.menus.flatMap((m) => [m.id, ...(m.children ?? []).map((c: any) => c.id)])),

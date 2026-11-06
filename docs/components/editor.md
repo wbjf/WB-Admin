@@ -40,6 +40,11 @@ const editorRef = ref()
 - 工具栏插图、表格、公式
 - 目录、全屏、导出
 
+> 全局配置（如接入自己的 `highlight.js` 实例）用**独立导出的 `config()`**：
+> `import { config } from 'md-editor-v3'; config({ editorExtensions: { highlight: { instance: hljs } } })`。
+> 写成 `MdEditor.config(...)` 会在 `setup()` 里抛 `TypeError`，组件渲染成 `Invalid vnode type: undefined` ——
+> 页面上只有一个空表单项、没有任何提示，`vue-tsc` 也报不出来。
+
 ## 提交时的注意点
 
 富文本内容存 HTML，后端字段要够长（`longtext`），并且**入库前不做 HTML 转义**，否则存进去的是 `&lt;p&gt;`。防 XSS 应该在渲染侧做（白名单过滤），不是存储侧。

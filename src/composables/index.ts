@@ -4,15 +4,15 @@ export { useDownload } from './useDownload'
 export { useDict } from './useDict'
 export { usePermission } from './usePermission'
 export { useDialogStack } from './useDialogStack'
-export { useAiChat, switchAiChatUser, type AiChatApi, type AddFilesResult } from '@/components/AiChat/useAiChat'
 export {
-  configureAiTransport,
-  createHttpTransport,
-  createMockTransport,
+  useAiChat,
+  switchAiChatUser,
+  normalizeModels,
   DEFAULT_MODELS,
-  type HttpTransportOptions,
-  type MockTransportOptions
-} from '@/components/AiChat/transport'
+  MAX_FILE_SIZE_MB,
+  type AiChatApi,
+  type AddFilesResult
+} from '@/components/AiChat/useAiChat'
 export {
   useDevicePreference,
   configureDevicePreference,

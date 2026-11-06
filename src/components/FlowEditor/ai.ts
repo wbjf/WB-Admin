@@ -1,12 +1,13 @@
 import type { FlowGraph } from '@/types'
-import { getAiTransport } from '@/components/AiChat/transport'
+import { aiApi } from '@/api/ai'
+import { DEFAULT_MODELS } from '@/components/AiChat/useAiChat'
 import { createEmptyGraph, migrateFlow, newId } from './serialize'
 
 /**
  * AI 生成流程图（E7）。
  *
- * 走 `AiChat` 的 transport（可配置为 HTTP 或纯前端 mock），
- * 因此静态部署下也能演示；接了真实模型就自动变成真的生成。
+ * 走和 AI 对话同一套接口（`@/api/ai` 的 `/api/chat`），
+ * 所以模型换了、网关换了只需要改接口层一处。
  * 这个文件**只被动态 import**：`features.ai` 关闭时完全不进包。
  */
 
@@ -26,13 +27,11 @@ export interface GenerateOptions {
 }
 
 export async function generateFlow(prompt: string, opts: GenerateOptions = {}): Promise<FlowGraph> {
-  const transport = getAiTransport()
-  let text = ''
-  await transport.chat(
+  const data = await aiApi.chat(
     {
-      model: 'default',
+      model: DEFAULT_MODELS[0]?.id ?? 'qwen2.5:3b',
       messages: [
-        // transport 只认 user / assistant，把系统提示并进第一条 user
+        // 接口只认 user / assistant，把系统提示并进第一条 user
         { role: 'user', content: SYSTEM_PROMPT },
         {
           role: 'user',
@@ -41,18 +40,16 @@ export async function generateFlow(prompt: string, opts: GenerateOptions = {}): 
             : prompt
         }
       ],
-      signal: opts.signal
+      stream: false
     },
-    {
-      onDelta: (chunk) => {
-        text += chunk
-      }
-    }
+    opts.signal
   )
+
+  const text = String(data?.message?.content ?? '')
 
   const graph = parseGraph(text)
   if (graph) return graph
-  // 模型没返回合法 JSON（mock 场景常见）：按关键词搭一个骨架，保证功能可见
+  // 模型没返回合法 JSON（小模型常见）：按关键词搭一个骨架，保证功能可见
   return keywordFallback(prompt)
 }
 

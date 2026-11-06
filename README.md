@@ -110,7 +110,7 @@ npm run dev          # http://localhost:3000
 | `WangEditor` / `MarkdownEditor` | 富文本与 Markdown |
 | `DeptSelect` | 部门树选择器 |
 | `DeviceTree` | 区域-设备两级树：拼音首字母排序（数字 → A-Z → 其它，自然序 `A2 < A10`）+ **偏好收藏置顶**，收藏按登录人隔离、暂存本地，可换后端适配器 |
-| `AiChat` | 全局 AI 对话面板：顶栏图标 / `Ctrl+I` 唤起，**多会话 + 分组管理**，流式回复、附件随消息发送、模型切换、历史按登录人持久化。默认走**纯前端模拟**（静态部署可用），换一行即可接真实后端 |
+| `AiChat` | 全局 AI 对话面板：顶栏图标 / `Ctrl+I` 唤起，**多会话 + 分组管理**，附件随消息发送、模型切换、历史按登录人持久化，回复中的 ` ```mermaid ` 代码块渲染成流程图（mermaid 本地注入，不走 CDN）。直连 Ollama（`/api/tags` + `/api/chat`，非流式 axios） |
 | `FlowEditor` | **可配置**流程图 / 工艺流程编辑器（LogicFlow）：拖拽元件库、连线、属性面板、自动布局、校验定位、版本 diff、模板、AI 生成、节拍分析、只读嵌入。`preset` 三档（mini / standard / pro）+ 全局默认 + 单实例三层收敛，元件库也可整体替换 |
 
 ### 设备树与偏好
@@ -132,18 +132,20 @@ npm run dev          # http://localhost:3000
 顶栏 ✨ 图标或 `Ctrl+I` 唤起（焦点在输入框内不拦截，避免抢「斜体」快捷键）。左下角添加文件、右下角选模型 + 发送；`Enter` 发送、`Shift + Enter` 换行，生成中可停止，支持全屏与清空会话。输入区上沿有一条拖动条：上下拖动调整输入框高度（键盘 ↑/↓ 也能调，双击复位成「跟随内容自动增高」）。
 
 - **状态**：`src/components/AiChat/useAiChat.ts` 是模块级单例 —— 顶栏按钮、快捷键、弹窗操作的是同一份会话，与 `useDevicePreference` 同一套路（这是 UI 状态，不值得进 store）。
-- **传输层可替换**：`src/components/AiChat/transport.ts`。默认 `createMockTransport()` **完全跑在浏览器里、一个请求都不发**，所以静态托管也能演示（mock 中间件只在 dev server 存在，见「部署」一节）。
-- **接真实后端**：换一行即可，界面不用改。
+- **接口定义在 [`src/api/ai.ts`](src/api/ai.ts)**：`GET /api/tags` 拉模型列表、`POST /api/chat` 对话（Ollama 协议，非流式 —— axios 拿不到流式增量，等模型生成完一次性返回全文）。与其他接口一样走 axios，逻辑全部在 `useAiChat`。
+- **Ollama 在别的机器上也一样**：dev 由 vite 代理转发 —— `/api/chat`、`/api/tags` 两条规则单独指向 `VITE_OLLAMA_TARGET`，其余 `/api` 仍走 `VITE_PROXY_TARGET` 与 mock。
 
-```ts
-import { configureAiTransport, createHttpTransport } from '@/composables'
-
-configureAiTransport(createHttpTransport({ baseURL: '/api' }))
+```bash
+# .env.development.local（不进仓库）
+VITE_OLLAMA_TARGET=http://192.168.1.50:11434   # 服务器地址
+VITE_OLLAMA_MODEL=qwen2.5:3b                   # 拉不到模型列表时的兜底
 ```
 
-接口约定：`GET /ai/models` 返回 `AiModel[]`；`POST /ai/chat` 收 `multipart`（`model`、`messages`(JSON)、`files`），响应支持 `text/event-stream`（`data: {"choices":[{"delta":{"content":"…"}}]}`，`[DONE]` 结束）或普通 JSON（`{ data: { content } }`，自动降级为一次性输出）。请求头由 transport 自己拼（`Authorization` / `X-Tenant-Id` / `Accept-Language`），不经 axios 拦截器。
+三个要点：Ollama 要用 `OLLAMA_HOST=0.0.0.0:11434` 启动并放行端口；两条代理规则**不能加 rewrite**（Ollama 自己的路由就带 `/api`），且**必须排在通用 `/api` 规则前面**（connect 按声明顺序取第一个命中）；mock 中间件排在 proxy 之前，所以它显式 bypass 了这两条路径。
 
-> 完整指南（前端实现步骤、前后端对接的三种方式、后端接口契约与最小可用实现、SSE 与 Nginx 配置、编程式调用、踩坑清单）见 [docs/components/ai-chat.md](docs/components/ai-chat.md)。
+接口格式：`GET /api/tags` → `{ models: [{ name, model, details }] }`；`POST /api/chat` 收 `{ model, messages, stream: true, keep_alive, options }`，响应为 `application/x-ndjson`，增量在 `message.content`，末帧 `done: true`。请求头由 `api/ai.ts` 自己拼（`Authorization` / `X-Tenant-Id` / `Accept-Language`），不经 axios 拦截器。
+
+> 静态演示站（GitHub Pages）上没有 Ollama，AI 面板会直接报错；其余页面的数据仍由浏览器内 mock adapter 提供。完整指南见 [docs/components/ai-chat.md](docs/components/ai-chat.md)。
 
 - **附件**：只在内存里随消息发送，最多 5 个、单文件 ≤ 10MB；历史里只保留名称与大小（`File` 不可序列化），刷新后仍能看到「当时发过什么」。
 - **会话与分组**：左侧会话栏可新建 / 切换 / 重命名 / 删除对话，并按分组归类（分组可折叠、改名、删除，删组不删对话）。标题取首条消息前 20 字，列表按最近使用排序；窄屏下会话栏为浮层且默认收起。生成中切到别的会话，回答仍写回原会话。
@@ -174,7 +176,7 @@ configureAiTransport(createHttpTransport({ baseURL: '/api' }))
 - 内置 mock 服务（零依赖中间件，可开关）
 - Dockerfile + Nginx（SPA history 回退 + gzip）+ docker-compose
 - GitHub Actions：lint / typecheck / unit / build / e2e
-- Vitest 单测（133 例）+ Playwright E2E（56 例，含本机 Chrome 真实渲染）
+- Vitest 单测（119 例）+ Playwright E2E（59 例，含本机 Chrome 真实渲染）
 
 ### 国际化
 中英文双语（`vue-i18n` + Element Plus locale 联动），文案集中在 `src/locales/lang/*`，运行时切换。
@@ -312,7 +314,7 @@ Nginx 关键配置已放在 `docker/nginx.conf`（SPA history 回退 + 静态资
 | 项目 | 结果 |
 | --- | --- |
 | `vue-tsc --noEmit` | 0 错误 |
-| `vitest run` | 100 / 100 通过（路由回归 7 例守住「目录菜单 → 路由」；租户 store 3 例守住「持久化脏数据」；设备树排序 26 例 + 偏好 15 例；**AI 会话 22 例**守住流式拼装、abort、附件限额、历史按人隔离与 HTTP 传输层解析，外加多会话/分组与 v1 迁移） |
+| `vitest run` | 134 / 134 通过（路由回归 7 例守住「目录菜单 → 路由」；租户 store 3 例守住「持久化脏数据」；设备树排序 + 偏好；**AI 会话 23 例**守住请求体字段、生成中停止、接口失败原因、附件限额、历史按人隔离，外加多会话/分组与 v1 迁移） |
 | `vite build` | 成功 |
 | `vitepress build docs` | 成功 |
 | `npm run test:e2e` | 45 / 45 通过（冒烟 4 + 设备树 7 + **AI 对话 8** + 对话框 10 + 顶栏/布局/间距/动效 16） |
@@ -320,7 +322,7 @@ Nginx 关键配置已放在 `docker/nginx.conf`（SPA history 回退 + 静态资
 | **内容区间距 / 滚动条 / 撑满回归**（真实浏览器） | **74 / 74 通过**：8 个代表页四周留白 **32px → 12px** · 窗口与内容区 0 滚动条 · 模块底边贴内容区底边（差 ≤1px）· 表头固定 + 分页贴卡片底 + 表体内部滚动（用户页 10 行溢出 31px，实测在表体内部）· **矮窗口 1280×620 / 1024×520 下仍然只有表体滚动**（表体内部溢出 >0，窗口/内容区/页面容器均无滚动条）· 工作台图表跟随容器自适应（1000px 高 356px → 820px 高 176px） |
 | **布局细节回归**（真实浏览器，含同源对照） | **55 / 55 通过**：按钮组相对列左边框缩进 8px → **88px**（= 列内边距 + labelWidth，与输入框左对齐）· 行内按钮中心离散 **6px → 0** · 左卡片高度 **232px → 795px = 所在列高** · 覆盖 1/2/3/4 个查询条件的 5 个页面（按钮组均不折行、不越界）· 浅色/深色双主题 · 3 个条件的岗位管理页按钮行未发生跨行位移 |
 | **布局与配色回归**（真实浏览器，含同源对照） | **18 / 18 通过**：菜单 hover 在浅/深色下均不再出现纯黑底（浅色 `rgb(0,0,0)` 对比度 3.44 → `rgb(245,247,250)` 5.69；深色 → `rgb(38,39,39)` 9.99）· 菜单常态与激活项对比度达标 · **tags 垂直居中（中心偏差 -6px → -0.5px）** · 折叠态 64px 图标居中无溢出 · 顶部布局菜单高度不溢出导航栏 · 混合布局侧边栏二级菜单 + 顶部一级入口 |
-| **AI 对话面板**（真实浏览器） | **8 / 8 通过**：顶栏图标唤起弹窗 · 发送后收到流式回复（生成中按钮变「停止」）· 切换模型后消息 meta 显示 `qwen-max` · 附件随消息发出并在气泡内显示文件名、待发送区清空 · 刷新后历史仍在、可一键清空 · `Enter` 发送 / `Shift+Enter` 只换行 · 全屏铺满并复原 · 拖动输入区上沿调高度后双击复位 · 新建对话 / 建组 / 移动 / 折叠 / 刷新后分组与会话仍在 · 在分组内点新建仍落在未分组 · **输入法上屏那一下的回车不误发送**（CDP 真实 IME 时序） |
+| **AI 对话面板**（真实浏览器） | **10 / 10 通过**：回复中的 mermaid 代码块渲染成 SVG 流程图且不撑破气泡 ·顶栏图标唤起弹窗 · 发送后收到回复（生成中按钮变「停止」）· 切换模型后消息 meta 显示 `qwen-max` · 附件随消息发出并在气泡内显示文件名、待发送区清空 · 刷新后历史仍在、可一键清空 · `Enter` 发送 / `Shift+Enter` 只换行 · 全屏铺满并复原 · 拖动输入区上沿调高度后双击复位 · 新建对话 / 建组 / 移动 / 折叠 / 刷新后分组与会话仍在 · 在分组内点新建仍落在未分组 · **输入法上屏那一下的回车不误发送**（CDP 真实 IME 时序） · **草稿非空时按 Backspace / Delete 只删字、不触发发送** |
 | 真实浏览器全链路 | 11 / 11 通过：登录 → **注入历史脏持久化数据后刷新不崩** → 租户下拉 3 项 → 20 个业务页面内容区非空 → 侧边栏目录可展开 → 用户表格出 10 行数据 → 直接访问 `/system` 正确落到子页 → 未知路径落 404 → **全站 0 条 Vue 告警**；无 pageerror、无 console.error、无失败请求、0 次重新预构建 |
 | **线上站点**（GitHub Pages，真实域名） | **19 / 19 通过**：入口 200 且 9 个资源全带 `/WB-Admin/` 前缀 · 登录 · 设备树 5 个区域按 **E→S→S→Y→Y** 拼音排序 · 区域内 `3号压铸机 → 11号叉车 → AGV-01 → D1 → D2 → D12`（数字自然序 + 字母自然序）· 收藏 `F10` 后置顶且**刷新仍在** · AI 面板发出消息收到流式回复 · 文档站 `/docs/components/device-tree.html`、`ai-chat.html` 均 200 且侧边栏有条目 · 全程无 pageerror |
 
@@ -494,14 +496,15 @@ Nginx 关键配置已放在 `docker/nginx.conf`（SPA history 回退 + 静态资
     （带这个属性的是 textarea 自己，它里面没有 textarea）。AI 面板的 e2e 因此连吃 4 个 30s 超时，
     页面截图看起来完全正常、报错只说「waiting for locator」。选择器直接写 `textarea` 或
     `textarea[data-test=...]`。（顺带说明 `@keydown` 也是绑在 textarea 上的，这点正好是我们要的。）
-36. **默认传输层不能依赖 dev server 的 mock 中间件。**
-    `vite.config.ts` 里的 mock 只在 `configureServer` 挂载，静态产物里根本不存在 ——
-    AI 面板如果默认走 `/ai/chat`，打包部署后点发送就是 404，而首页照样 200，看起来像「部署成功」。
-    所以默认 `createMockTransport()` 完全跑在浏览器里、零请求；真实接口封装在 `createHttpTransport()` 里按需启用。
+36. **mock 中间件会把真实后端的接口「兜」成 200 空响应。**
+    `vite.config.ts` 里的 mock 挂在 `configureServer` 上，**排在 vite 内置 proxy 之前**，而且对未命中的路由不是 404，而是 `{code:200,data:null}` + HTTP 200。
+    实测 `POST /api/chat` 直接返回 `{"code":200,"msg":"操作成功","data":null}`，代理根本没被调用 —— 界面上既不报错也没有内容，比报错难查得多。
+    所以 AI 的两条接口在 mock 插件里显式 `bypass`，并且代理规则里**不能加 rewrite**（Ollama 的路由自带 `/api`）。
 37. **模型列表是异步拉的，`send()` 不能假设 `modelId` 已有值。**
     用户在列表回来之前就点发送（接口慢或失败时永远回不来），请求里的 `model` 会是空字符串 → 后端 400。
     现在 `useAiChat()` 先填一个内置默认模型占位，`send()` 里再兜一层 `modelId || models[0]?.id`。
     这条是单测抓出来的（`expected '' to be 'gpt-4o'`）—— 界面上完全看不出来，因为消息照样显示"生成中"。
+    顺带：`loadModels()` 会被初始化和每次打开面板各调一次，首条请求还没回来时会重复发起 —— 用同一个 in-flight promise 去重（实测从 3 条 `/api/tags` 降到 1 条）。
 38. **`e.isComposing` 拦不住「上屏那一下的回车」。**
     输入法上屏时的事件顺序各浏览器不同：Safari 与部分第三方输入法是
     `compositionend` → `keydown(Enter, isComposing=false)`，于是「按回车确认候选词」被当成发送，
@@ -518,6 +521,25 @@ Nginx 关键配置已放在 `docker/nginx.conf`（SPA history 回退 + 静态资
     另外这条 bug 一开始没被 e2e 抓到，是因为断言写的是「列表第一条 = 某个会话」——
     侧栏是「未分组桶固定在最前」，会话的 `groupId` 丢失后正好掉进未分组、又因为 `updatedAt` 最新排第一，
     **断言反而通过了**。按桶断言（先 `.wb-ai__group` 筛选再取会话）才抓得住。
+40. **「Enter 发送」要写成 `@keydown.enter`，裸 `@keydown` 会让任何键都发送。**
+    `@keydown="onEnter"` 收到的是**所有**按键，函数里只判了修饰键和输入法状态、没判按键，
+    于是草稿非空时按 Backspace / Delete / 方向键全部走到 `send()`（`canSend` 只要求草稿非空），
+    表现是「输入一段文字再按退格就把这条发了」，而且因为 `preventDefault()` 抢在前面，
+    非输入法状态下连打第二个字母都会把第一个字发掉、第二个字还插不进去。
+    改成 `@keydown.enter` 由 Vue 先过滤一层即可。**但 composition 两个钩子不能一起去掉**：
+    CDP 真实 IME 时序下实测三种回车全是 `key: 'Enter'` / `keyCode: 13`，「上屏紧跟的那发」
+    `isComposing` 已是 `false`，只有 `composeEndedAt` 时间窗拦得住（摘掉即回退成「打两个字就自动发送」）。
+    回归用例见 `test/e2e/ai-chat.spec.ts` 的「草稿非空时按 Backspace / Delete 只删字，不会发送」。
+
+41. **组件库的静态方法别凭记忆写：`MdEditor.config` ≠ `config`。**
+    md-editor-v3 4.x 的全局配置是**独立的导出 `config()`**（`import { config } from 'md-editor-v3'`），
+    写成 `MdEditor.config({...})` 会在 `setup()` 里抛 `TypeError: MdEditor.config is not a function`，
+    组件因此渲染失败、Vue 只给一句 `Invalid vnode type when creating vnode: undefined` ——
+    **页面上是一个空的表单项，功能已经没了，却没有任何界面提示**（CRUD 示例的「富文本说明」就这么空白了半年）。
+    最坑的是：`vue-tsc --noEmit` 对这个写法 **0 报错**（实测连 `@ts-expect-error` 都会报 unused），ESLint 也不管，
+    所以只有两样东西能发现它 —— 真机跑一遍，或者断言**渲染出来的 DOM**。
+    回归用例见 `test/e2e/crud-form.spec.ts`：断言 `.md-editor` 可见 + 高度 >200px + 工具栏节点数 >10，
+    并检查提交 payload 里的 `description` —— 只断言「弹窗打开了」是抓不住的，那条在故障状态下照样通过。
 
 ---
 

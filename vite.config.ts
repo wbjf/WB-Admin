@@ -54,7 +54,12 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       vue(),
-      mockServer({ enabled: env.VITE_USE_MOCK === 'true' }),
+      mockServer({
+        enabled: env.VITE_USE_MOCK === 'true',
+        prefix: env.VITE_API_PREFIX || '/api',
+        // AI 接口一律不进 mock：走真实 Ollama（/api/ai 是历史路径，留着防止被兜成假成功）
+        bypass: ['/api/chat', '/api/tags', '/api/ai']
+      }),
       AutoImport({
         imports: ['vue', 'vue-router', 'pinia', { 'vue-i18n': ['useI18n'] }],
         resolvers: [ElementPlusResolver()],
@@ -101,6 +106,25 @@ export default defineConfig(({ mode }) => {
       port: Number(env.VITE_PORT) || 3000,
       open: false,
       proxy: {
+        /**
+         * Ollama 的两条接口：`/api/chat`、`/api/tags`。
+         *
+         * 三个要点，缺一个就调不通：
+         * ① **必须排在下面通用前缀之前** —— connect 按声明顺序取第一个命中的规则；
+         * ② **不能加 rewrite** —— Ollama 自己的路由就带 `/api`，改成 `/chat` 会 404；
+         * ③ 也不能并进通用前缀那条，它的 rewrite 会把 `/api` 剥掉（同 ②）。
+         *
+         * 模型装在别的机器上时，把 target 写成那台机器的地址（VITE_OLLAMA_TARGET），
+         * 同时用 `OLLAMA_HOST=0.0.0.0:11434` 启动 Ollama 并放行端口。
+         */
+        '/api/chat': {
+          target: env.VITE_OLLAMA_TARGET || 'http://127.0.0.1:11434',
+          changeOrigin: true
+        },
+        '/api/tags': {
+          target: env.VITE_OLLAMA_TARGET || 'http://127.0.0.1:11434',
+          changeOrigin: true
+        },
         [env.VITE_API_PREFIX || '/api']: {
           target: env.VITE_PROXY_TARGET || 'http://127.0.0.1:8080',
           changeOrigin: true,

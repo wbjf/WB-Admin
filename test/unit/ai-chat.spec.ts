@@ -1,14 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
+import { aiApi } from '@/api/ai'
 import {
-  configureAiTransport,
-  createHttpTransport,
-  createMockTransport,
   DEFAULT_MODELS,
-  resetAiTransportForTest
-} from '@/components/AiChat/transport'
-import {
   MAX_FILES,
+  normalizeModels,
   resetAiChatForTest,
   switchAiChatUser,
   useAiChat
@@ -23,78 +19,48 @@ function makeFile(name: string, size = 1024): File {
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-function fastTransport(): ReturnType<typeof createMockTransport> {
-  // 单测不关心打字机节奏，首片与每片延迟都归零
-  return createMockTransport({ firstDelay: 0, charDelay: 0, chunkSize: 4096 })
+/**
+ * 把 `/api/chat` 换成可控的假实现：非流式，一次性返回全文。
+ *
+ * `delay` 用来复现「生成中」状态（可中断）；被 abort 时抛 AbortError，
+ * 与 axios 取消请求的行为一致。会话状态机跟 HTTP 无关，
+ * 桩放在测试里直接替换 `aiApi.chat` 最贴近调用点。
+ */
+function stubChat(opts: { text?: string; delay?: number } = {}) {
+  return vi.spyOn(aiApi, 'chat').mockImplementation(async (body, signal) => {
+    const last = [...body.messages].reverse().find((m) => m.role === 'user')?.content ?? ''
+    if (opts.delay) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, opts.delay)
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer)
+          reject(new DOMException('Aborted', 'AbortError'))
+        })
+      })
+    }
+    return {
+      model: body.model,
+      message: { role: 'assistant', content: opts.text ?? `关于「${last}」的回答` },
+      done: true
+    }
+  })
 }
 
-describe('AI 传输层（本地模拟）', () => {
-  beforeEach(() => {
-    resetAiTransportForTest()
-  })
-
-  it('返回可选的模型列表', async () => {
-    const list = await createMockTransport().listModels()
-    expect(list.length).toBeGreaterThan(1)
-    expect(list.map((m) => m.id)).toEqual(DEFAULT_MODELS.map((m) => m.id))
-    // 返回的是副本，外部改了不能污染常量
-    list[0].name = 'changed'
-    expect(DEFAULT_MODELS[0].name).not.toBe('changed')
-  })
-
-  it('分片输出拼起来就是完整回复（含附件与 markdown）', async () => {
-    const chunks: string[] = []
-    await createMockTransport({ firstDelay: 0, charDelay: 0, chunkSize: 3 }).chat(
-      {
-        model: 'gpt-4o',
-        locale: 'zh-CN',
-        messages: [{ role: 'user', content: '帮我看看这个报错' }],
-        files: [{ uid: '1', name: 'error.log', size: 2048, type: 'text/plain' }]
-      },
-      { onDelta: (c) => chunks.push(c) }
-    )
-
-    expect(chunks.length).toBeGreaterThan(10)
-    const full = chunks.join('')
-    expect(full).toContain('帮我看看这个报错')
-    expect(full).toContain('error.log')
-    expect(full).toContain('```ts')
-  })
-
-  it('英文环境返回英文回复', async () => {
-    let full = ''
-    await fastTransport().chat(
-      { model: 'gpt-4o', locale: 'en-US', messages: [{ role: 'user', content: 'hello' }] },
-      { onDelta: (c) => (full += c) }
-    )
-    expect(full).toContain('local mock reply')
-  })
-
-  it('abort 之后不再吐出任何增量', async () => {
-    const controller = new AbortController()
-    let deltas = 0
-    const task = createMockTransport({ firstDelay: 0, charDelay: 5, chunkSize: 2 }).chat(
-      { model: 'gpt-4o', messages: [{ role: 'user', content: 'hi' }], signal: controller.signal },
-      { onDelta: () => (deltas += 1) }
-    )
-
-    await sleep(30)
-    controller.abort()
-    await task
-
-    // 关键断言：中断后不能还有「已经排上队」的定时器继续吐字
-    const atAbort = deltas
-    await sleep(60)
-    expect(deltas).toBe(atAbort)
-    expect(atAbort).toBeGreaterThan(0)
-  })
-})
+/** 模型列表默认返回兜底那条，避免每个用例都要写一遍 */
+function stubTags(body: unknown = { models: [{ name: DEFAULT_MODELS[0].id }] }) {
+  return vi.spyOn(aiApi, 'tags').mockResolvedValue(body as any)
+}
 
 describe('AI 会话状态', () => {
   beforeEach(() => {
     localStorage.clear()
     resetAiChatForTest()
-    configureAiTransport(fastTransport())
+    stubTags()
+    stubChat()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('附件：正常加入，超大小与超数量被拒绝', () => {
@@ -128,10 +94,25 @@ describe('AI 会话状态', () => {
     expect(assistant.role).toBe('assistant')
     expect(assistant.model).toBe(chat.modelId.value)
     expect(assistant.pending).toBe(false)
-    expect(assistant.content).toContain('本地模拟')
+    expect(assistant.content).toBe('关于「这个接口怎么设计」的回答')
     // 发完就清空草稿与待发送附件，否则下一次会重复带上
     expect(chat.draft.value).toBe('')
     expect(chat.attachments.value).toHaveLength(0)
+  })
+
+  it('发送时提交给 /api/chat 的字段：model / messages / stream / keep_alive', async () => {
+    const spy = stubChat()
+    const chat = useAiChat()
+    chat.draft.value = '你好'
+    await chat.send()
+
+    const body = spy.mock.calls[0][0]
+    expect(body.model).toBe(chat.modelId.value)
+    expect(body.messages).toEqual([{ role: 'user', content: '你好' }])
+    // axios 拿不到流式增量，必须是 false：等模型生成完一次性返回
+    expect(body.stream).toBe(false)
+    expect(body.keep_alive).toBe('30m')
+    expect(body.options?.num_ctx).toBe(8192)
   })
 
   it('空输入既不发送也不产生消息', async () => {
@@ -184,8 +165,8 @@ describe('AI 会话状态', () => {
     expect(raw.sessions.find((s: any) => s.id === raw.activeId).messages).toHaveLength(0)
   })
 
-  it('生成中可以停止，已产出的内容保留', async () => {
-    configureAiTransport(createMockTransport({ firstDelay: 0, charDelay: 8, chunkSize: 4 }))
+  it('生成中可以停止，主动中断不算失败', async () => {
+    stubChat({ text: '长回复', delay: 200 })
     const chat = useAiChat()
     chat.draft.value = '讲一个长一点的故事'
     const task = chat.send()
@@ -200,6 +181,26 @@ describe('AI 会话状态', () => {
     expect(assistant.pending).toBe(false)
     // 主动中断不算失败
     expect(assistant.error).toBeFalsy()
+    expect(chat.lastError.value).toBe('')
+  })
+
+  it('接口失败时消息标红并记下原因，不是静默空白', async () => {
+    // 模拟 axios 的错误形状：Ollama 的原因在 response.data.error
+    vi.spyOn(aiApi, 'chat').mockRejectedValue(
+      Object.assign(new Error('Request failed with status code 404'), {
+        code: 'ERR_BAD_REQUEST',
+        response: { status: 404, data: { error: "model 'qwen2.5:3b' not found" } }
+      })
+    )
+
+    const chat = useAiChat()
+    chat.draft.value = 'hi'
+    await chat.send()
+
+    const assistant = chat.messages.value[1]
+    expect(assistant.error).toBe(true)
+    expect(assistant.pending).toBe(false)
+    expect(chat.lastError.value).toMatch(/not found/)
   })
 })
 
@@ -207,7 +208,12 @@ describe('会话与分组', () => {
   beforeEach(() => {
     localStorage.clear()
     resetAiChatForTest()
-    configureAiTransport(fastTransport())
+    stubTags()
+    stubChat()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   async function sendText(text: string): Promise<void> {
@@ -308,25 +314,25 @@ describe('会话与分组', () => {
     expect(chat.sessions.value.map((s) => s.id)).toEqual([a])
   })
 
-  it('生成中切到别的会话，增量仍然写回原会话', async () => {
-    configureAiTransport(createMockTransport({ firstDelay: 0, charDelay: 6, chunkSize: 4 }))
+  it('生成中切到别的会话，回复仍然写回原会话', async () => {
+    stubChat({ text: '一整段回复', delay: 120 })
     const chat = useAiChat()
     chat.draft.value = '讲一个长一点的故事'
     const task = chat.send()
     const sid = chat.activeId.value
 
-    await sleep(30)
+    await sleep(40)
     expect(chat.sending.value).toBe(true)
 
     chat.createSession()
-    // 新会话不该显示「生成中」，但原会话的流还在继续
+    // 新会话不该显示「生成中」，但原会话的请求还在跑
     expect(chat.sending.value).toBe(false)
     expect(chat.messages.value).toHaveLength(0)
 
     await task
     chat.switchSession(sid)
     expect(chat.messages.value).toHaveLength(2)
-    expect(chat.messages.value[1].content.length).toBeGreaterThan(0)
+    expect(chat.messages.value[1].content).toBe('一整段回复')
     expect(chat.messages.value[1].pending).toBe(false)
   })
 
@@ -351,108 +357,90 @@ describe('会话与分组', () => {
   })
 })
 
-describe('AI 传输层（HTTP / SSE）', () => {
-  const realFetch = globalThis.fetch
+describe('模型列表（/api/tags）', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    resetAiChatForTest()
+  })
 
   afterEach(() => {
-    globalThis.fetch = realFetch
-    localStorage.clear()
+    vi.restoreAllMocks()
   })
 
-  function jsonRes(body: unknown): any {
-    return {
-      ok: true,
-      status: 200,
-      headers: { get: () => 'application/json' },
-      json: async () => body
-    }
-  }
+  it('打开面板时才拉，接口返回的那份直接用（id 取带 tag 的 name）', async () => {
+    const spy = stubTags({ models: [{ name: 'llama3:8b', details: { family: 'llama' } }] })
+    const chat = useAiChat()
+    // 未打开面板前不请求 —— 否则每个页面加载都平白打一条 /api/tags
+    expect(spy).not.toHaveBeenCalled()
 
-  function sseRes(parts: Uint8Array[]): any {
-    const stream = new ReadableStream<Uint8Array>({
-      start(c) {
-        parts.forEach((p) => c.enqueue(p))
-        c.close()
-      }
+    chat.open()
+    await flushPromises()
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(chat.models.value.map((m) => m.id)).toEqual(['llama3:8b'])
+    expect(chat.modelId.value).toBe('llama3:8b')
+  })
+
+  it('连点两次只发一次请求（in-flight 去重）', async () => {
+    const spy = stubTags({ models: [{ name: 'a:1b' }] })
+    const chat = useAiChat()
+    chat.open()
+    chat.open()
+    await flushPromises()
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('拉失败时退回兜底那条，面板不至于空着', async () => {
+    vi.spyOn(aiApi, 'tags').mockRejectedValue(new Error('ECONNREFUSED'))
+    const chat = useAiChat()
+    chat.open()
+    await flushPromises()
+
+    expect(chat.models.value.map((m) => m.id)).toEqual(DEFAULT_MODELS.map((m) => m.id))
+    // 兜底模型要能被选中并真的发出去，否则首条消息的 model 是空串
+    expect(chat.modelId.value).toBe(DEFAULT_MODELS[0].id)
+  })
+
+  it('服务端一个模型都没给时也用兜底，不留在空列表', async () => {
+    stubTags({ models: [] })
+    const chat = useAiChat()
+    chat.open()
+    await flushPromises()
+    expect(chat.models.value).toHaveLength(1)
+  })
+})
+
+describe('模型归一化（normalizeModels）', () => {
+  it('把 { models } 转成界面用的 AiModel[]', () => {
+    const list = normalizeModels({
+      models: [
+        {
+          name: 'qwen2.5:3b',
+          model: 'qwen2.5:3b',
+          details: { family: 'qwen2', parameter_size: '3.1B', quantization_level: 'Q4_K_M' }
+        }
+      ]
     })
-    return {
-      ok: true,
-      status: 200,
-      headers: { get: () => 'text/event-stream; charset=utf-8' },
-      body: stream
-    }
-  }
-
-  it('解包统一响应体，并带上鉴权 / 租户 / 语言头', async () => {
-    localStorage.setItem('wb-admin-token', 't-1')
-    localStorage.setItem('wb-admin-tenant', 'acme')
-    localStorage.setItem('wb-admin-locale', 'en-US')
-    let init: any = null
-    globalThis.fetch = (async (_url: string, i: any) => {
-      init = i
-      return jsonRes({ code: 200, msg: 'ok', data: [{ id: 'm1', name: 'M1' }] })
-    }) as any
-
-    const list = await createHttpTransport({ baseURL: '/api' }).listModels()
-
-    expect(list.map((m) => m.id)).toEqual(['m1'])
-    expect(init.headers.Authorization).toBe('Bearer t-1')
-    // 裸 fetch 不走 axios 拦截器，租户头必须自己带，否则多租户后端按「无租户」处理
-    expect(init.headers['X-Tenant-Id']).toBe('acme')
-    expect(init.headers['Accept-Language']).toBe('en-US')
+    expect(list).toHaveLength(1)
+    expect(list[0].id).toBe('qwen2.5:3b')
+    expect(list[0].provider).toBe('qwen2')
+    expect(list[0].desc).toBe('3.1B · Q4_K_M')
   })
 
-  it('HTTP 200 但 code 失败时抛错，而不是静默当成空回复', async () => {
-    globalThis.fetch = (async () => jsonRes({ code: 500, msg: '额度不足' })) as any
-
-    await expect(
-      createHttpTransport().chat(
-        { model: 'm1', messages: [{ role: 'user', content: 'hi' }] },
-        { onDelta() {} }
-      )
-    ).rejects.toThrow('额度不足')
+  it('结构不对时给空数组，不抛错', () => {
+    expect(normalizeModels(null)).toEqual([])
+    expect(normalizeModels({})).toEqual([])
+    expect(normalizeModels({ models: [{ name: 'a' }, {}] }).map((m) => m.id)).toEqual(['a'])
   })
 
-  it('multipart 提交 model / messages，SSE 增量按序拼装', async () => {
-    const chunks: string[] = []
-    let body: FormData | null = null
-    globalThis.fetch = (async (_url: string, i: any) => {
-      body = i.body
-      return sseRes([
-        new TextEncoder().encode('data: {"choices":[{"delta":{"content":"你好"}}]}\n\n'),
-        new TextEncoder().encode('data: [DONE]\n\n')
-      ])
-    }) as any
-
-    await createHttpTransport().chat(
-      { model: 'qwen-max', messages: [{ role: 'user', content: '测试' }], locale: 'zh-CN' },
-      { onDelta: (c) => chunks.push(c) }
-    )
-
-    expect(body).toBeInstanceOf(FormData)
-    expect((body as unknown as FormData).get('model')).toBe('qwen-max')
-    expect((body as unknown as FormData).get('messages')).toBe(
-      JSON.stringify([{ role: 'user', content: '测试' }])
-    )
-    expect(chunks.join('')).toBe('你好')
-  })
-
-  it('一个汉字被拆到两个数据块时不会乱码', async () => {
-    const chunks: string[] = []
-    const bytes = new TextEncoder().encode('data: 你好\n\n')
-    // 'data: ' 占 6 字节，「你」的 3 字节从第 6 位开始 —— 从第 7 位切，正好切在汉字中间
-    globalThis.fetch = (async () =>
-      sseRes([
-        bytes.slice(0, 7),
-        bytes.slice(7),
-        new TextEncoder().encode('data: [DONE]\n\n')
-      ])) as any
-
-    await createHttpTransport().chat(
-      { model: 'm1', messages: [{ role: 'user', content: 'hi' }] },
-      { onDelta: (c) => chunks.push(c) }
-    )
-
-    expect(chunks.join('')).toBe('你好')
+  it('过滤 embedding 模型（不支持 chat，出现在下拉里就是必然失败）', () => {
+    const list = normalizeModels({
+      models: [
+        { name: 'bge-m3:latest', details: { family: 'bert' } },
+        { name: 'qwen3-embedding:0.6b', details: { family: 'qwen3' } },
+        { name: 'qwen2.5:3b', details: { family: 'qwen2' } }
+      ]
+    })
+    expect(list.map((m) => m.id)).toEqual(['qwen2.5:3b'])
   })
 })
