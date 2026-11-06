@@ -23,7 +23,8 @@ WB-Admin 是一套**通用后台管理系统脚手架**。目标只有一个：�
 - **Element Plus 2.8** + `@element-plus/icons-vue`
 - **vue-i18n 10**（Composition API 模式）
 - **axios**（统一封装 + 静默刷新 + 并发去重）
-- **ECharts 5** / **xlsx** / **wangEditor** / **md-editor-v3** / **cropperjs**
+- **ECharts 5** / **xlsx** / **wangEditor** / **md-editor-v3** / **mermaid** / **cropperjs**
+- **LogicFlow 2**（流程图编辑器）+ **dagre**（自动布局）
 - **Vitest**（单测）+ **Playwright**（E2E）
 - **ESLint 9 flat config** + Prettier + Husky + lint-staged + commitlint
 
@@ -36,10 +37,10 @@ WB-Admin 是一套**通用后台管理系统脚手架**。目标只有一个：�
 | C 主题外观 | 主色自定义、暗黑、色弱、灰色、紧凑、圆角、水印、首屏无闪 |
 | D 权限体系 | 动态路由、三级权限、数据权限、超级管理员绕过、无权限页 |
 | E 请求层 | 拦截器、统一响应、401 刷新队列、取消、去重、重试、下载 |
-| F 通用组件 | ProTable / ProForm / SearchForm / ProDialog / ProUpload / Dict / IconSelect / EChart / ImageCropper / Editor |
+| F 通用组件 | ProTable / ProForm / SearchForm / ProDialog / ProUpload / Dict / IconSelect / EChart / ImageCropper / Editor / DeviceTree / FlowEditor |
 | G 业务页面 | 用户、角色、菜单、部门、岗位、字典、参数、公告、租户、个人中心 |
 | H 监控工具 | 在线用户、操作日志、登录日志、服务监控、缓存监控、代码生成、定时任务、文件管理 |
-| I 增强 | 富文本/Markdown、导入导出、打印、二维码、裁剪、拖拽、复制指令 |
+| I 增强 | AI 对话面板（Ollama + mermaid 渲染）、富文本/Markdown、导入导出、打印、二维码、裁剪、拖拽、复制指令 |
 | J 工程化 | 代码生成器、Mock、Docker + Nginx、GitHub Actions、单测、E2E、组件文档 |
 
 ## 接下来

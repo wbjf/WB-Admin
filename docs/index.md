@@ -23,7 +23,9 @@ features:
   - title: 多租户 + 国际化
     details: 租户上下文注入请求头、租户切换页；vue-i18n 与 Element Plus 语言包联动，支持运行时切换。
   - title: 零依赖 Mock
-    details: Vite 中间件实现的 Mock 服务，不依赖 mockjs 的 XHR 劫持，前端可独立跑通全部页面与 CRUD。
+    details: Vite 中间件实现的 Mock 服务，不依赖 mockjs 的 XHR 劫持，前端可独立跑通全部页面与 CRUD；真实接口用 bypass 放行，不会被「兜」成空响应。
+  - title: AI 对话 + 流程图渲染
+    details: 内置可拖拽的 AI 面板（多会话、分组、附件、停止、全屏），直连本地 Ollama；回复里的 mermaid 代码块直接渲染成 SVG 流程图，实例本地注入、不走 CDN。
   - title: 工程化配套
     details: 代码生成器、ESLint/Prettier/Husky/commitlint、Vitest 单测、Playwright E2E、Docker + Nginx、GitHub Actions。
 ---

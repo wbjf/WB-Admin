@@ -63,6 +63,24 @@ db.products = Array.from({ length: 60 }).map((_, i) => ({ productId: String(i + 
 
 想验证验证码流程，把 `captchaEnabled` 改成 `true` 即可（图片为空时页面会隐藏该表单项）。
 
+## 放行真实接口（`bypass`）
+
+这个中间件注册在 `configureServer` 里，**排在 vite 内置 proxy 之前**，而它对未命中的 `/api` 请求不是返回 404，而是兜底 `ok(null)` + HTTP 200。也就是说：已经接了真实后端的接口，只要还在 `/api` 前缀下，就会被「兜」成一个成功但空的响应 —— 请求看起来成功了，数据却是 `null`，比报错难查得多。
+
+所以真实接口要显式放行：
+
+```ts
+// vite.config.ts
+mockServer({
+  enabled: env.VITE_USE_MOCK === 'true',
+  bypass: ['/api/chat', '/api/tags']
+})
+```
+
+匹配规则是「相等或以 `p/` 开头」，避免 `/api/chat` 把 `/api/chatx` 一起放过去。当前放行的是 AI 对话的两条 Ollama 接口（见 [AI 对话面板](../components/ai-chat.md)）。
+
+> 这也是删掉 AI 占位路由后仍然需要 bypass 的原因：路由没了，兜底还在。少了它，旧路径会安静地返回 `{code:200,data:null}`。
+
 ## 关掉 Mock
 
 ```ini

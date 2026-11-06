@@ -5,16 +5,23 @@
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `VITE_APP_TITLE` | `WB-Admin` | 站点标题、登录页大标题 |
-| `VITE_API_BASE_URL` | `/dev-api` / `/api` | 接口前缀，最终会被 `VITE_API_PREFIX` 统一 |
+| `VITE_APP_ENV` | `development` | 环境标识，仅用于区分构建产物，不参与运行时逻辑 |
+| `VITE_BASE_URL` | `/` | 应用基路径。静态托管在子目录（如 `/WB-Admin/`）时必须改，否则所有资源去域名根目录找 |
 | `VITE_API_PREFIX` | `/api` | 请求统一前缀 |
+| `VITE_PROXY_TARGET` | `http://127.0.0.1:8080` | 开发代理目标（`server.proxy` 的通用 `/api` 规则） |
+| `VITE_OLLAMA_TARGET` | `http://127.0.0.1:11434` | AI 对话的 Ollama 地址，只作用于 `/api/chat`、`/api/tags` 两条代理规则 |
+| `VITE_OLLAMA_MODEL` | `qwen2.5:3b` | 模型列表拉不到时的兜底模型名，必须与服务器上实际存在的一致 |
 | `VITE_PORT` | `3000` | 开发服务端口 |
 | `VITE_USE_MOCK` | `true`（dev） | 是否启用内置 Mock |
 | `VITE_ENABLE_TENANT` | `true` | 是否启用多租户（关闭后隐藏租户相关入口） |
 | `VITE_ENABLE_I18N` | `true` | 是否启用国际化 |
 | `VITE_ENABLE_DEMO` | `true` | 是否展示示例演示模块 |
-| `VITE_ROUTER_MODE` | `history` | `history` / `hash` |
+| `VITE_ROUTER_HISTORY` | `history` | 设为 `hash` 切到哈希路由 |
 | `VITE_BUILD_COMPRESS` | `false` | 构建产物压缩（Windows 下有已知路径问题，建议交给 Nginx） |
 | `VITE_BUILD_ANALYZE` | `false` | 是否产出打包分析页 |
+| `VITE_BUILD_SOURCEMAP` | `true` | 是否产出 sourcemap（`pages` 模式关闭） |
+
+> AI 对话相关的两个变量怎么用、Ollama 怎么对外开放，见 [AI 对话面板 · 接口怎么接](../components/ai-chat.md#二接口怎么接)。
 
 ## 构建与别名（`vite.config.ts`）
 

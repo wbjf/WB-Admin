@@ -105,6 +105,13 @@ export default defineConfig({
             { text: '工具函数', link: '/components/utils' }
           ]
         }
+      ],
+      // 设计文档只有一个入口，从 FlowEditor 页跳进来时侧栏不至于空着
+      '/design/': [
+        {
+          text: '设计文档',
+          items: [{ text: '流程图编辑器 PRD', link: '/design/flow-editor' }]
+        }
       ]
     },
     outline: { label: '本页目录', level: [2, 3] },

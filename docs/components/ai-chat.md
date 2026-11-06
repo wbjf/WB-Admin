@@ -647,8 +647,7 @@ function askAboutTicket(row: { id: string; title: string }) {
 3. **`<style scoped>` 管不到 `el-dialog` 的根元素。** `el-dialog` 的根是 `Teleport`，`class="wb-ai"` 挂上去了，`data-v-*` 没挂上去 —— 所有 `.wb-ai[data-v-x] …` 规则**静默失效**（不报错、控制台干净）。这类「dialog 自己」的规则一律写 `:global()`，且**不能嵌在 `.wb-ai { }` 里**，否则会被拼成 `.wb-ai[data-v-x] .wb-ai.is-fullscreen`。判据：`el.matches('.wb-ai[data-v-x]')` 为 `false` 就说明整段没生效。
 4. **e2e 里 `[data-test=ai-input] textarea` 选不到东西。** `el-input` 会把 `data-test` 透到内层 `textarea` 上，带这个属性的就是 textarea 自己，它里面没有 textarea。直接 `[data-test=ai-input]` 即可。
 5. **模型列表还没回来就发送 → `model` 为空 → 后端 400。** 现在 `useAiChat()` 先填 `DEFAULT_MODELS[0]` 占位，`send()` 里再兜一层 `modelId || models[0]?.id`。后端仍要校验，不要假设前端一定传对。
-6. **流式半成品不能落盘。** 刷新后拿到的 `pending` 消息永远停在「生成中」，因为增量早就没了。
-7. **汉字会被切两半。** SSE 必须用 `TextDecoder(..., { stream: true })` 增量解码，并按 `\n\n` 缓冲后再切行；直接对每个 chunk 调 `decode()` 会出现乱码。
+6. **现在是非流式，所以不存在「增量落盘」和「汉字切半」——换回流式时必须补。** 流式增量不能逐片落盘（长回复会卡）；SSE 得用 `TextDecoder(..., { stream: true })` 增量解码、按 `\n\n` 缓冲后再切行，直接对每个 chunk 调 `decode()` 会出乱码；另外刷新后 `pending` 消息会永远停在「生成中」，因为增量早就没了。这三条都是上一版流式实现踩过的。
 8. **AI 接口不要挂在 dev mock 上。** 早期 `src/mock/index.ts` 里放过 `GET /ai/models`、`POST /ai/chat` 两条占位，问题有二：① mock 中间件只解析 JSON，multipart 的 `messages` 会退化成原始字符串；② 它注册在 proxy 之前且未命中返回 HTTP 200，接真后端时请求会被「兜」成一个成功但空的响应。**现已全部移除**，AI 走 `src/api/ai.ts` → `/api/chat`、`/api/tags`。
 9. **附件回放只有元信息。** 历史里的附件不带 `File`，重发时传的是 `fileUrls`（若后端当时回写了 url），否则只能展示「发过什么」。
 10. **失败没有全局提示，但 401 会走续期。** 两条 AI 接口带 `showError: false`，错误只体现在面板红字，不弹全局 ElMessage；但走 axios 意味着 401 会进无感刷新流程 —— 直连 Ollama 无副作用（它不返回 401），换成会 401 的网关时若不想续期，给接口加 `meta.auth: false`。

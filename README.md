@@ -143,7 +143,9 @@ VITE_OLLAMA_MODEL=qwen2.5:3b                   # 拉不到模型列表时的兜�
 
 三个要点：Ollama 要用 `OLLAMA_HOST=0.0.0.0:11434` 启动并放行端口；两条代理规则**不能加 rewrite**（Ollama 自己的路由就带 `/api`），且**必须排在通用 `/api` 规则前面**（connect 按声明顺序取第一个命中）；mock 中间件排在 proxy 之前，所以它显式 bypass 了这两条路径。
 
-接口格式：`GET /api/tags` → `{ models: [{ name, model, details }] }`；`POST /api/chat` 收 `{ model, messages, stream: true, keep_alive, options }`，响应为 `application/x-ndjson`，增量在 `message.content`，末帧 `done: true`。请求头由 `api/ai.ts` 自己拼（`Authorization` / `X-Tenant-Id` / `Accept-Language`），不经 axios 拦截器。
+接口格式：`GET /api/tags` → `{ models: [{ name, model, details }] }`，归一化成下拉项时会滤掉 embedding 模型（`bge-m3`、`*embedding*` 这类不支持 `/api/chat`）；`POST /api/chat` 收 `{ model, messages, stream: false, keep_alive, options }`，一次性返回完整 JSON，全文在 `message.content`、`done: true`。鉴权 / 租户 / 语言头由 axios 拦截器统一带，和其余接口一致。
+
+> 请求里显式带 `repeatable: true`（防重复提交的 controller 会覆盖外部 signal，「停止」会失效）和 `timeout: 0`（默认 30s 不够模型生成）。
 
 > 静态演示站（GitHub Pages）上没有 Ollama，AI 面板会直接报错；其余页面的数据仍由浏览器内 mock adapter 提供。完整指南见 [docs/components/ai-chat.md](docs/components/ai-chat.md)。
 
@@ -248,13 +250,17 @@ const { tableRef, query, formData, visible, openAdd, openEdit, submit, remove } 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `VITE_APP_TITLE` | WB-Admin | 站点标题 |
+| `VITE_BASE_URL` | / | 应用基路径；静态托管子目录（如 `/WB-Admin/`）必须改 |
 | `VITE_API_PREFIX` | /api | 接口前缀 |
 | `VITE_PROXY_TARGET` | http://127.0.0.1:8080 | 开发代理目标 |
+| `VITE_OLLAMA_TARGET` | http://127.0.0.1:11434 | AI 对话的 Ollama 地址（仅 dev 代理用） |
+| `VITE_OLLAMA_MODEL` | qwen2.5:3b | 模型列表拉不到时的兜底模型 |
 | `VITE_USE_MOCK` | true | 是否启用内置 mock |
 | `VITE_ENABLE_TENANT` | true | 多租户开关 |
 | `VITE_ENABLE_I18N` | true | 国际化开关 |
 | `VITE_BUILD_COMPRESS` | false | gzip 压缩（Windows 下建议用 Nginx 代替） |
 | `VITE_BUILD_ANALYZE` | false | 打包体积分析 |
+| `VITE_BUILD_SOURCEMAP` | true（pages 关） | 是否产出 sourcemap |
 | `VITE_ROUTER_HISTORY` | history | 设为 `hash` 切换哈希路由 |
 
 ---
